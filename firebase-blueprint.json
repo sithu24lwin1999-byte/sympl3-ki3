@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "Shop": {
+      "title": "Shop",
+      "description": "A shop/tenant registered in the system",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "owner": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "plan": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["ACTIVE", "EXPIRED", "SUSPENDED"] },
+        "expiry": { "type": "string" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["name", "owner", "phone", "status", "ownerId"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "An employee belonging to a specific shop",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["Active", "Inactive", "On Leave"] },
+        "shift": { "type": "string", "maxLength": 50 },
+        "shopId": { "type": "string" }
+      },
+      "required": ["name", "role", "shopId"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product for a shop",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "sku": { "type": "string", "maxLength": 50 },
+        "category": { "type": "string", "maxLength": 50 },
+        "price": { "type": "number" },
+        "cost": { "type": "number" },
+        "stock": { "type": "number" },
+        "status": { "type": "string", "maxLength": 50 },
+        "image": { "type": "string", "maxLength": 500 },
+        "shopId": { "type": "string" }
+      },
+      "required": ["name", "price", "stock", "shopId"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "An order placed at a shop",
+      "type": "object",
+      "properties": {
+        "customer": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "maxLength": 50 },
+        "items": { "type": "string", "maxLength": 500 },
+        "total": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "PREPARING", "COMPLETED", "CANCELLED"] },
+        "time": { "type": "string" },
+        "shopId": { "type": "string" }
+      },
+      "required": ["total", "status", "shopId"]
+    }
+  },
+  "firestore": {
+    "shops": {
+      "schema": "Shop",
+      "description": "Global collection of shops"
+    },
+    "shops/{shopId}/employees": {
+      "schema": "Employee",
+      "description": "Employees of a specific shop"
+    },
+    "shops/{shopId}/products": {
+      "schema": "Product",
+      "description": "Products of a specific shop"
+    },
+    "shops/{shopId}/orders": {
+      "schema": "Order",
+      "description": "Orders for a specific shop"
+    }
+  }
+}

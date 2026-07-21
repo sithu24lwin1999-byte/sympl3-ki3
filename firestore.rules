@@ -1,0 +1,111 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Core Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function isAdmin() {
+      // In this setup, we hardcode the system admin email from the prompt
+      return isSignedIn() && request.auth.token.email == 'maxuxekuta321@gmail.com';
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidShop(data) {
+      return data.keys().hasAll(['name', 'owner', 'phone', 'status', 'ownerId'])
+        && data.name is string && data.name.size() <= 100
+        && data.owner is string && data.owner.size() <= 100
+        && data.phone is string && data.phone.size() <= 20
+        && data.status in ['ACTIVE', 'EXPIRED', 'SUSPENDED']
+        && data.ownerId is string && data.ownerId.size() <= 128;
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll(['name', 'role', 'shopId'])
+        && data.name is string && data.name.size() <= 100
+        && data.role is string && data.role.size() <= 50
+        && data.shopId is string && data.shopId.size() <= 128;
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'price', 'stock', 'shopId'])
+        && data.name is string && data.name.size() <= 100
+        && data.price is number
+        && data.stock is number
+        && data.shopId is string && data.shopId.size() <= 128;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['total', 'status', 'shopId'])
+        && data.total is number
+        && data.status in ['PENDING', 'PREPARING', 'COMPLETED', 'CANCELLED']
+        && data.shopId is string && data.shopId.size() <= 128;
+    }
+
+    // --- Collections ---
+
+    match /shops/{shopId} {
+      allow read: if isAdmin() || (isSignedIn() && existing().ownerId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      
+      allow create: if isAdmin() && isValidShop(incoming());
+      allow update: if isValidId(shopId) && isValidShop(incoming()) && (
+        isAdmin() ||
+        (isSignedIn() && existing().ownerId == request.auth.uid && incoming().ownerId == existing().ownerId)
+      );
+      allow delete: if isAdmin();
+
+      match /employees/{employeeId} {
+        function isShopOwner() {
+          return get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+        }
+
+        allow read, list: if isAdmin() || (isSignedIn() && isShopOwner());
+        allow create: if isAdmin() || (isSignedIn() && isShopOwner() && isValidEmployee(incoming()) && incoming().shopId == shopId);
+        allow update: if isValidId(employeeId) && isValidEmployee(incoming()) && (
+          isAdmin() || 
+          (isSignedIn() && isShopOwner() && incoming().shopId == existing().shopId)
+        );
+        allow delete: if isAdmin() || (isSignedIn() && isShopOwner());
+      }
+
+      match /products/{productId} {
+        function isShopOwner() {
+          return get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+        }
+
+        allow read, list: if isAdmin() || (isSignedIn() && isShopOwner());
+        allow create: if isAdmin() || (isSignedIn() && isShopOwner() && isValidProduct(incoming()) && incoming().shopId == shopId);
+        allow update: if isValidId(productId) && isValidProduct(incoming()) && (
+          isAdmin() || 
+          (isSignedIn() && isShopOwner() && incoming().shopId == existing().shopId)
+        );
+        allow delete: if isAdmin() || (isSignedIn() && isShopOwner());
+      }
+
+      match /orders/{orderId} {
+        function isShopOwner() {
+          return get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
+        }
+
+        allow read, list: if isAdmin() || (isSignedIn() && isShopOwner());
+        allow create: if isAdmin() || (isSignedIn() && isShopOwner() && isValidOrder(incoming()) && incoming().shopId == shopId);
+        allow update: if isValidId(orderId) && isValidOrder(incoming()) && (
+          isAdmin() || 
+          (isSignedIn() && isShopOwner() && incoming().shopId == existing().shopId)
+        );
+        allow delete: if isAdmin() || (isSignedIn() && isShopOwner());
+      }
+    }
+  }
+}
