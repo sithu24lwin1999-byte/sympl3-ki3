@@ -4,6 +4,9 @@ import { Card, Button } from '@/components/ui';
 import { Download, TrendingUp, DollarSign, Package, ShoppingCart, Loader2, CheckCircle2 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { formatCurrency } from '@/lib/utils';
+import { downloadCsv } from '@/lib/actions';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const monthlyData = [
   { name: 'Jan', revenue: 4000000, orders: 2400 },
@@ -21,18 +24,33 @@ export default function AdminReports() {
 
   const handleExportCsv = () => {
     setExportCsvState('loading');
-    setTimeout(() => {
+    requestAnimationFrame(() => {
+      downloadCsv('ki3-global-report.csv', [
+        ['Month', 'Revenue (MMK)', 'Orders'],
+        ...monthlyData.map(row => [row.name, row.revenue, row.orders]),
+      ]);
       setExportCsvState('done');
       setTimeout(() => setExportCsvState('idle'), 2000);
-    }, 1000);
+    });
   };
 
   const handleExportPdf = () => {
     setExportPdfState('loading');
-    setTimeout(() => {
+    requestAnimationFrame(() => {
+      const doc = new jsPDF();
+      doc.setFontSize(18);
+      doc.text('KI3 POS - Global Report', 14, 18);
+      doc.setFontSize(10);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 26);
+      autoTable(doc, {
+        startY: 32,
+        head: [['Month', 'Revenue (MMK)', 'Orders']],
+        body: monthlyData.map(row => [row.name, row.revenue.toLocaleString(), row.orders.toLocaleString()]),
+      });
+      doc.save('ki3-global-report.pdf');
       setExportPdfState('done');
       setTimeout(() => setExportPdfState('idle'), 2000);
-    }, 1500);
+    });
   };
 
   return (

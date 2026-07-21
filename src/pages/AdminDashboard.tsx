@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge } from '@/components/ui';
@@ -17,6 +17,11 @@ const revenueData = [
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const [revenueRange, setRevenueRange] = useState<'6m' | '1y'>('6m');
+  const chartData = revenueRange === '6m' ? revenueData : [
+    { name: 'Jul', value: 2100000 }, { name: 'Aug', value: 2300000 }, { name: 'Sep', value: 2500000 },
+    { name: 'Oct', value: 2700000 }, { name: 'Nov', value: 2900000 }, { name: 'Dec', value: 3200000 }, ...revenueData,
+  ];
 
   return (
     <DashboardLayout role="ADMIN">
@@ -69,13 +74,13 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between mb-8">
             <h3 className="font-bold text-slate-800">Revenue Growth (Monthly)</h3>
             <div className="flex bg-slate-100 rounded-lg p-1">
-              <button className="px-3 py-1 text-[11px] font-bold bg-white shadow-sm rounded-md text-slate-900">6 Months</button>
-              <button className="px-3 py-1 text-[11px] font-bold text-slate-500">1 Year</button>
+              <button onClick={() => setRevenueRange('6m')} className={cn("px-3 py-1 text-[11px] font-bold rounded-md", revenueRange === '6m' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500')}>6 Months</button>
+              <button onClick={() => setRevenueRange('1y')} className={cn("px-3 py-1 text-[11px] font-bold rounded-md", revenueRange === '1y' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500')}>1 Year</button>
             </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={revenueData}>
+              <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>

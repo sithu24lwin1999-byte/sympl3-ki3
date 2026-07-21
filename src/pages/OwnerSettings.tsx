@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Input } from '@/components/ui';
 import { Save, Store, Receipt, Printer, Users, Loader2, CheckCircle2 } from 'lucide-react';
@@ -7,9 +7,24 @@ export default function OwnerSettings() {
   const [activeTab, setActiveTab] = useState('Shop Profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const savedSettings = JSON.parse(localStorage.getItem('ki3-owner-settings') || '{}');
+    const values: string[] = savedSettings[activeTab] || [];
+    requestAnimationFrame(() => {
+      settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((field, index) => {
+        if (values[index] !== undefined) field.value = values[index];
+      });
+    });
+  }, [activeTab]);
 
   const handleSave = () => {
     setIsSaving(true);
+    const savedSettings = JSON.parse(localStorage.getItem('ki3-owner-settings') || '{}');
+    const fields = settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select');
+    savedSettings[activeTab] = fields ? Array.from(fields).map(field => (field as HTMLInputElement | HTMLSelectElement).value) : [];
+    localStorage.setItem('ki3-owner-settings', JSON.stringify(savedSettings));
     setTimeout(() => {
       setIsSaving(false);
       setSaved(true);
@@ -38,7 +53,7 @@ export default function OwnerSettings() {
           <SettingTab icon={Users} label="Customer Loyalty" active={activeTab === 'Customer Loyalty'} onClick={() => setActiveTab('Customer Loyalty')} />
         </div>
 
-        <div className="md:col-span-2 space-y-6">
+        <div ref={settingsRef} className="md:col-span-2 space-y-6">
           {activeTab === 'Shop Profile' && (
             <Card className="p-6">
               <h3 className="text-lg font-bold text-slate-900 mb-6">Shop Information</h3>

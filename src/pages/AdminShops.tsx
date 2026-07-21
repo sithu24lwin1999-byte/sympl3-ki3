@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, MoreVertical, Filter, X, CheckCircle2 } from 'lucide-react';
+import { usePersistentState } from '@/lib/actions';
 
 const initialShops = [
   { id: 'S001', name: 'City Mart Branch 4', owner: 'Kyaw Zin', phone: '09-123456789', plan: '50000 MMK', status: 'ACTIVE', expiry: '2026-12-31' },
@@ -14,8 +15,9 @@ const initialShops = [
 
 export default function AdminShops() {
   const location = useLocation();
-  const [shops, setShops] = useState(initialShops);
+  const [shops, setShops] = usePersistentState('ki3-shops', initialShops);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
@@ -31,7 +33,7 @@ export default function AdminShops() {
 
   const handleCreateShop = () => {
     if (!newShop.name || !newShop.owner) return;
-    const newId = 'S00' + (shops.length + 1);
+    const newId = `S${Date.now().toString().slice(-6)}`;
     const shop = {
       ...newShop,
       id: newId,
@@ -49,11 +51,15 @@ export default function AdminShops() {
   };
 
   const deleteShop = (id: string) => {
+    if (!window.confirm('Delete this shop?')) return;
     setShops(shops.filter(shop => shop.id !== id));
     setActiveMenu(null);
   };
 
-  const filteredShops = shops.filter(s => s.name.toLowerCase().includes(search.toLowerCase()) || s.owner.toLowerCase().includes(search.toLowerCase()));
+  const filteredShops = shops.filter(s =>
+    (statusFilter === 'ALL' || s.status === statusFilter) &&
+    (s.name.toLowerCase().includes(search.toLowerCase()) || s.owner.toLowerCase().includes(search.toLowerCase()))
+  );
 
   return (
     <DashboardLayout role="ADMIN">
@@ -79,9 +85,15 @@ export default function AdminShops() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Button variant="outline" className="gap-2 border-slate-200 text-slate-600 hover:bg-slate-50">
-            <Filter className="w-4 h-4" /> Filter
-          </Button>
+          <label className="flex items-center gap-2 border-2 border-slate-200 rounded-2xl px-4 text-slate-600 bg-white">
+            <Filter className="w-4 h-4" />
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-11 bg-transparent text-sm font-semibold outline-none">
+              <option value="ALL">All statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="SUSPENDED">Suspended</option>
+              <option value="EXPIRED">Expired</option>
+            </select>
+          </label>
         </div>
 
         <div className="overflow-visible min-h-[300px]">
@@ -221,7 +233,7 @@ export default function AdminShops() {
               <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={() => setShowCreateModal(false)}>
                 Cancel
               </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleCreateShop}>
+              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleCreateShop} disabled={!newShop.name.trim() || !newShop.owner.trim()}>
                 Create Shop
               </Button>
             </div>

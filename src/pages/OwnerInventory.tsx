@@ -3,6 +3,7 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, Filter, Edit, Trash2, X, Image as ImageIcon } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
+import { usePersistentState } from '@/lib/actions';
 
 const initialInventory = [
   { id: 'P001', name: 'Premium Espresso', sku: 'BEV-001', category: 'Beverage', price: 4500, cost: 1500, stock: 124, status: 'In Stock', image: 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=100&h=100&fit=crop' },
@@ -14,8 +15,11 @@ const initialInventory = [
 
 export default function OwnerInventory() {
   const [search, setSearch] = useState('');
-  const [products, setProducts] = useState(initialInventory);
+  const [products, setProducts] = usePersistentState('ki3-inventory', initialInventory);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
   const [newProduct, setNewProduct] = useState({ name: '', sku: '', category: 'Beverage', price: '', cost: '', stock: '', image: '' });
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -33,7 +37,7 @@ export default function OwnerInventory() {
     if (!newProduct.name) return;
     const stock = parseInt(newProduct.stock) || 0;
     const p = {
-      id: 'P00' + (products.length + 1),
+      id: editingId || `P${Date.now().toString().slice(-6)}`,
       name: newProduct.name,
       sku: newProduct.sku,
       category: newProduct.category,
@@ -43,14 +47,37 @@ export default function OwnerInventory() {
       status: stock > 10 ? 'In Stock' : stock > 0 ? 'Low Stock' : 'Out of Stock',
       image: newProduct.image || 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=100&h=100&fit=crop'
     };
-    setProducts([p, ...products]);
+    setProducts(editingId ? products.map(product => product.id === editingId ? p : product) : [p, ...products]);
     setShowAddModal(false);
+    setEditingId(null);
     setNewProduct({ name: '', sku: '', category: 'Beverage', price: '', cost: '', stock: '', image: '' });
   };
 
   const handleDelete = (id: string) => {
+    if (!window.confirm('Delete this product?')) return;
     setProducts(products.filter(p => p.id !== id));
   };
+
+  const handleEdit = (product: typeof initialInventory[number]) => {
+    setEditingId(product.id);
+    setNewProduct({
+      name: product.name, sku: product.sku, category: product.category,
+      price: String(product.price), cost: String(product.cost), stock: String(product.stock), image: product.image,
+    });
+    setShowAddModal(true);
+  };
+
+  const closeModal = () => {
+    setShowAddModal(false);
+    setEditingId(null);
+    setNewProduct({ name: '', sku: '', category: 'Beverage', price: '', cost: '', stock: '', image: '' });
+  };
+
+  const filteredProducts = products.filter(p =>
+    (categoryFilter === 'All' || p.category === categoryFilter) &&
+    (statusFilter === 'All' || p.status === statusFilter) &&
+    (p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()))
+  );
 
   return (
     <DashboardLayout role="OWNER">
@@ -107,12 +134,12 @@ export default function OwnerInventory() {
             />
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" className="gap-2 border-slate-200 text-slate-600 hover:bg-slate-50">
-              <Filter className="w-4 h-4" /> Category
-            </Button>
-            <Button variant="outline" className="gap-2 border-slate-200 text-slate-600 hover:bg-slate-50">
-              <Filter className="w-4 h-4" /> Status
-            </Button>
+            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 outline-none">
+              <option>All</option><option>Beverage</option><option>Bakery</option><option>Raw Material</option>
+            </select>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 outline-none">
+              <option>All</option><option>In Stock</option><option>Low Stock</option><option>Out of Stock</option>
+            </select>
           </div>
         </div>
 
@@ -129,7 +156,7 @@ export default function OwnerInventory() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase())).map((product) => (
+              {filteredProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -164,7 +191,7 @@ export default function OwnerInventory() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 bg-slate-50">
+                      <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 bg-slate-50" onClick={() => handleEdit(product)}>
                         <Edit className="h-4 w-4" />
                       </Button>
                       <Button 
@@ -187,8 +214,8 @@ export default function OwnerInventory() {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
             <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">Add New Product</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
+              <h2 className="text-xl font-bold text-slate-900">{editingId ? 'Edit Product' : 'Add New Product'}</h2>
+              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -275,11 +302,11 @@ export default function OwnerInventory() {
             </div>
 
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
-              <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={() => setShowAddModal(false)}>
+              <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={closeModal}>
                 Cancel
               </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddProduct}>
-                Save Product
+              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddProduct} disabled={!newProduct.name.trim()}>
+                {editingId ? 'Update Product' : 'Save Product'}
               </Button>
             </div>
           </div>

@@ -3,6 +3,7 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, Edit, Trash2, ShieldCheck, Mail, Phone, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { usePersistentState } from '@/lib/actions';
 
 const initialEmployees = [
   { id: 'E001', name: 'Kyaw Zin', role: 'Manager', email: 'kyawzin@ki3.com', phone: '09-123456789', status: 'Active', shift: 'Morning' },
@@ -13,14 +14,15 @@ const initialEmployees = [
 
 export default function OwnerEmployees() {
   const [search, setSearch] = useState('');
-  const [employees, setEmployees] = useState(initialEmployees);
+  const [employees, setEmployees] = usePersistentState('ki3-employees', initialEmployees);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newEmployee, setNewEmployee] = useState({ name: '', role: 'Cashier', email: '', phone: '', shift: 'Morning' });
 
   const handleAddEmployee = () => {
     if (!newEmployee.name) return;
     const e = {
-      id: 'E00' + (employees.length + 1),
+      id: editingId || `E${Date.now().toString().slice(-6)}`,
       name: newEmployee.name,
       role: newEmployee.role,
       email: newEmployee.email,
@@ -28,13 +30,27 @@ export default function OwnerEmployees() {
       status: 'Active',
       shift: newEmployee.shift
     };
-    setEmployees([e, ...employees]);
+    setEmployees(editingId ? employees.map(employee => employee.id === editingId ? e : employee) : [e, ...employees]);
     setShowAddModal(false);
+    setEditingId(null);
     setNewEmployee({ name: '', role: 'Cashier', email: '', phone: '', shift: 'Morning' });
   };
 
   const handleDelete = (id: string) => {
+    if (!window.confirm('Delete this employee?')) return;
     setEmployees(employees.filter(e => e.id !== id));
+  };
+
+  const handleEdit = (employee: typeof initialEmployees[number]) => {
+    setEditingId(employee.id);
+    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, phone: employee.phone, shift: employee.shift });
+    setShowAddModal(true);
+  };
+
+  const closeModal = () => {
+    setShowAddModal(false);
+    setEditingId(null);
+    setNewEmployee({ name: '', role: 'Cashier', email: '', phone: '', shift: 'Morning' });
   };
 
   return (
@@ -120,7 +136,7 @@ export default function OwnerEmployees() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 bg-slate-50">
+                      <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 bg-slate-50" onClick={() => handleEdit(employee)}>
                         <Edit className="h-4 w-4" />
                       </Button>
                       <Button 
@@ -143,8 +159,8 @@ export default function OwnerEmployees() {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
             <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">Add New Employee</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
+              <h2 className="text-xl font-bold text-slate-900">{editingId ? 'Edit Employee' : 'Add New Employee'}</h2>
+              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -206,11 +222,11 @@ export default function OwnerEmployees() {
             </div>
 
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
-              <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={() => setShowAddModal(false)}>
+              <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={closeModal}>
                 Cancel
               </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddEmployee}>
-                Add Employee
+              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddEmployee} disabled={!newEmployee.name.trim()}>
+                {editingId ? 'Update Employee' : 'Add Employee'}
               </Button>
             </div>
           </div>

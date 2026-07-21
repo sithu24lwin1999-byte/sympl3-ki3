@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Input } from '@/components/ui';
 import { Save, Globe, Shield, CreditCard, Bell, Database, Loader2, CheckCircle2 } from 'lucide-react';
+import { downloadText } from '@/lib/actions';
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState('General Settings');
@@ -14,9 +15,25 @@ export default function AdminSettings() {
 
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupDone, setBackupDone] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const savedSettings = JSON.parse(localStorage.getItem('ki3-admin-settings') || '{}');
+    const values: string[] = savedSettings[activeTab] || [];
+    requestAnimationFrame(() => {
+      settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((field, index) => {
+        if (values[index] !== undefined) field.value = values[index];
+      });
+    });
+  }, [activeTab]);
 
   const handleSave = () => {
     setIsSaving(true);
+    const savedSettings = JSON.parse(localStorage.getItem('ki3-admin-settings') || '{}');
+    const fields = settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select');
+    savedSettings[activeTab] = fields ? Array.from(fields).map(field => (field as HTMLInputElement | HTMLSelectElement).value) : [];
+    localStorage.setItem('ki3-admin-settings', JSON.stringify(savedSettings));
+    localStorage.setItem('ki3-plan-prices', JSON.stringify({ basicPlanPrice, premiumPlanPrice }));
     setTimeout(() => {
       setIsSaving(false);
       setSaved(true);
@@ -27,6 +44,11 @@ export default function AdminSettings() {
   const handleBackup = () => {
     setIsBackingUp(true);
     setTimeout(() => {
+      const backup = Object.fromEntries(Array.from({ length: localStorage.length }, (_, index) => {
+        const key = localStorage.key(index)!;
+        return [key, localStorage.getItem(key)];
+      }));
+      downloadText(`ki3-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(backup, null, 2), 'application/json');
       setIsBackingUp(false);
       setBackupDone(true);
       setTimeout(() => setBackupDone(false), 3000);
@@ -55,7 +77,7 @@ export default function AdminSettings() {
           <SettingTab icon={Database} label="Backups & Data" active={activeTab === 'Backups & Data'} onClick={() => setActiveTab('Backups & Data')} />
         </div>
 
-        <div className="md:col-span-2 space-y-6">
+        <div ref={settingsRef} className="md:col-span-2 space-y-6">
           {activeTab === 'General Settings' && (
             <>
               <Card className="p-6">

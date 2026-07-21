@@ -17,10 +17,15 @@ const hourlySales = [
   { time: '18:00', sales: 420000 },
   { time: '20:00', sales: 310000 },
 ];
+const weeklySales = [
+  { time: 'Mon', sales: 1450000 }, { time: 'Tue', sales: 1720000 }, { time: 'Wed', sales: 1380000 },
+  { time: 'Thu', sales: 1910000 }, { time: 'Fri', sales: 2250000 }, { time: 'Sat', sales: 2680000 }, { time: 'Sun', sales: 1850000 },
+];
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
   const [isExporting, setIsExporting] = useState<'idle' | 'loading' | 'done'>('idle');
+  const [salesRange, setSalesRange] = useState<'today' | 'weekly'>('today');
 
   const handleExport = () => {
     setIsExporting('loading');
@@ -111,13 +116,13 @@ export default function OwnerDashboard() {
           <div className="flex items-center justify-between mb-8">
             <h3 className="font-bold text-slate-800">Sales by Hour (Today)</h3>
             <div className="flex bg-slate-100 rounded-lg p-1">
-              <button className="px-3 py-1 text-[11px] font-bold bg-white shadow-sm rounded-md text-slate-900">Today</button>
-              <button className="px-3 py-1 text-[11px] font-bold text-slate-500">Weekly</button>
+              <button onClick={() => setSalesRange('today')} className={cn("px-3 py-1 text-[11px] font-bold rounded-md", salesRange === 'today' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500')}>Today</button>
+              <button onClick={() => setSalesRange('weekly')} className={cn("px-3 py-1 text-[11px] font-bold rounded-md", salesRange === 'weekly' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500')}>Weekly</button>
             </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={hourlySales}>
+              <BarChart data={salesRange === 'today' ? hourlySales : weeklySales}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" opacity={0.5} />
                 <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 'bold' }} dy={10} />
                 <YAxis 
@@ -187,4 +192,3 @@ export default function OwnerDashboard() {
     </DashboardLayout>
   );
 }
-

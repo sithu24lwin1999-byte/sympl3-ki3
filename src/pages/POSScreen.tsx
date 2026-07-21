@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Search, ShoppingBag, CreditCard, Banknote, Trash2, Plus, Minus, ScanBarcode, ArrowLeft, Printer, CheckCircle2, X } from 'lucide-react';
 import { Button, Input, Card, Badge } from '@/components/ui';
@@ -24,6 +24,8 @@ export default function POSScreen() {
   const [search, setSearch] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'KBZ Pay' | 'Wave Pay'>('Cash');
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const filteredProducts = MOCK_PRODUCTS.filter(p => 
     (activeCategory === 'All' || p.category === activeCategory) &&
@@ -55,14 +57,18 @@ export default function POSScreen() {
   const grandTotal = total + tax;
 
   const handleCheckout = () => {
-    setLastOrder({
+    const order = {
       items: [...cart],
       total,
       tax,
       grandTotal,
+      paymentMethod,
       time: new Date().toLocaleTimeString(),
       id: 'ORD-' + Math.floor(1000 + Math.random() * 9000)
-    });
+    };
+    setLastOrder(order);
+    const orders = JSON.parse(localStorage.getItem('ki3-pos-orders') || '[]');
+    localStorage.setItem('ki3-pos-orders', JSON.stringify([order, ...orders]));
     setShowReceipt(true);
     setCart([]);
   };
@@ -86,9 +92,9 @@ export default function POSScreen() {
             <p className="text-sm font-bold">Cashier: Kyaw Zin</p>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
           </div>
-          <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center">
+          <button aria-label="Scan barcode" onClick={() => searchRef.current?.focus()} className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center hover:bg-blue-100">
             <ScanBarcode className="w-6 h-6 text-slate-600" />
-          </div>
+          </button>
         </div>
       </header>
 
@@ -99,6 +105,7 @@ export default function POSScreen() {
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
               <Input 
+                ref={searchRef}
                 placeholder="Search products by name or barcode..." 
                 className="pl-12 h-14 text-lg bg-white border-slate-200 shadow-sm rounded-full focus-visible:ring-blue-500"
                 value={search}
@@ -214,12 +221,16 @@ export default function POSScreen() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <Button variant="outline" className="h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200">
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <Button variant="outline" onClick={() => setPaymentMethod('Cash')} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200", paymentMethod === 'Cash' && 'border-blue-500 ring-2 ring-blue-100')}>
+                <Banknote className="w-6 h-6 text-emerald-600" />
+                <span className="text-xs font-bold text-slate-600">Cash</span>
+              </Button>
+              <Button variant="outline" onClick={() => setPaymentMethod('KBZ Pay')} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200", paymentMethod === 'KBZ Pay' && 'border-blue-500 ring-2 ring-blue-100')}>
                 <CreditCard className="w-6 h-6 text-blue-600" />
                 <span className="text-xs font-bold text-slate-600">KBZ Pay</span>
               </Button>
-              <Button variant="outline" className="h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200">
+              <Button variant="outline" onClick={() => setPaymentMethod('Wave Pay')} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200", paymentMethod === 'Wave Pay' && 'border-blue-500 ring-2 ring-blue-100')}>
                 <CreditCard className="w-6 h-6 text-yellow-500" />
                 <span className="text-xs font-bold text-slate-600">Wave Pay</span>
               </Button>
@@ -230,7 +241,7 @@ export default function POSScreen() {
               disabled={cart.length === 0}
               onClick={handleCheckout}
             >
-              <Banknote className="w-6 h-6 mr-2" /> Pay {formatCurrency(grandTotal)}
+              <Banknote className="w-6 h-6 mr-2" /> Pay {formatCurrency(grandTotal)} · {paymentMethod}
             </Button>
           </div>
         </div>
@@ -286,6 +297,10 @@ export default function POSScreen() {
                     <span className="font-black text-slate-900">Total</span>
                     <span className="font-black text-blue-600">{formatCurrency(lastOrder.grandTotal)}</span>
                   </div>
+                  <div className="flex justify-between text-sm pt-1">
+                    <span className="font-bold text-slate-500">Payment</span>
+                    <span className="font-bold text-slate-700">{lastOrder.paymentMethod}</span>
+                  </div>
                 </div>
 
                 <div className="flex justify-center mb-4">
@@ -299,7 +314,7 @@ export default function POSScreen() {
                 <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={() => setShowReceipt(false)}>
                   New Order
                 </Button>
-                <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowReceipt(false)}>
+                <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => window.print()}>
                   <Printer className="w-4 h-4 mr-2" /> Print Receipt
                 </Button>
               </div>
@@ -310,4 +325,3 @@ export default function POSScreen() {
     </div>
   );
 }
-

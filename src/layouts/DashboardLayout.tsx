@@ -1,5 +1,5 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui';
@@ -27,7 +27,19 @@ const ownerNav: SidebarItem[] = [
 
 export default function DashboardLayout({ children, role }: { children: React.ReactNode, role: 'ADMIN' | 'OWNER' }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const navItems = role === 'ADMIN' ? adminNav : ownerNav;
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  const handleSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    const query = globalSearch.trim().toLowerCase();
+    if (!query) return;
+    const match = navItems.find(item => `${item.label} ${item.path}`.toLowerCase().includes(query));
+    navigate(match?.path || (role === 'ADMIN' ? '/admin/shops' : '/owner/inventory'), { state: { search: globalSearch } });
+    setGlobalSearch('');
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 overflow-hidden">
@@ -92,21 +104,32 @@ export default function DashboardLayout({ children, role }: { children: React.Re
           </div>
           
           <div className="flex items-center gap-6 lg:ml-auto">
-            <div className="flex items-center bg-slate-100 rounded-full px-4 py-2 gap-3 w-48 md:w-64">
+            <form onSubmit={handleSearch} className="flex items-center bg-slate-100 rounded-full px-4 py-2 gap-3 w-48 md:w-64">
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
                 placeholder="Global Search..." 
                 className="bg-transparent border-none outline-none text-sm w-full text-slate-900"
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
               />
-            </div>
+            </form>
             
             <div className="flex items-center gap-3">
               <div className="relative">
-                <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 cursor-pointer">
+                <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 cursor-pointer hover:bg-blue-100">
                   <Bell className="w-5 h-5" />
-                </div>
+                </button>
                 <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+                {showNotifications && (
+                  <div className="absolute right-0 top-12 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl z-50">
+                    <p className="px-2 py-1 text-sm font-bold">Notifications</p>
+                    <button onClick={() => { navigate(role === 'ADMIN' ? '/admin/shops' : '/owner/inventory'); setShowNotifications(false); }} className="w-full rounded-xl p-3 text-left hover:bg-slate-50">
+                      <p className="text-xs font-bold text-slate-800">Action required</p>
+                      <p className="mt-1 text-xs text-slate-500">Review expiring plans and low-stock products.</p>
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-3 ml-2 border-l border-slate-200 pl-6">
                 <div className="text-right hidden md:block">
