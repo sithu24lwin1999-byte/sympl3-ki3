@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { addDoc, collection, collectionGroup, deleteDoc, doc, DocumentData, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, collectionGroup, deleteDoc, doc, DocumentData, DocumentReference, getDocs, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Order, Product } from '@/types';
 import { stockStatus } from './pos';
@@ -50,6 +50,31 @@ export const createRecord = (path: string, value: DocumentData) => addDoc(collec
 export const setRecord = (path: string, id: string, value: DocumentData) => setDoc(doc(db, path, id), value, { merge: true });
 export const updateRecord = (path: string, id: string, value: DocumentData) => updateDoc(doc(db, path, id), value);
 export const deleteRecord = (path: string, id: string) => deleteDoc(doc(db, path, id));
+
+const SHOP_SUBCOLLECTIONS = [
+  'auditLogs', 'branches', 'customers', 'employees', 'expenses', 'orders',
+  'paymentAccounts', 'products', 'purchases', 'settings', 'shifts',
+  'stockMovements', 'suppliers',
+] as const;
+
+async function deleteInBatches(references: DocumentReference[]) {
+  for (let offset = 0; offset < references.length; offset += 450) {
+    const batch = writeBatch(db);
+    references.slice(offset, offset + 450).forEach(reference => batch.delete(reference));
+    await batch.commit();
+  }
+}
+
+export async function deleteShopCascade(shopId: string) {
+  const subcollectionSnapshots = await Promise.all(
+    SHOP_SUBCOLLECTIONS.map(name => getDocs(collection(db, `shops/${shopId}/${name}`))),
+  );
+  const assignedUsers = await getDocs(query(collection(db, 'users'), where('shopId', '==', shopId)));
+
+  await deleteInBatches(subcollectionSnapshots.flatMap(snapshot => snapshot.docs.map(item => item.ref)));
+  await deleteInBatches(assignedUsers.docs.map(item => item.ref));
+  await deleteDoc(doc(db, 'shops', shopId));
+}
 
 export async function completeSale(shopId: string, order: Omit<Order, 'id'>) {
   const orderRef = doc(collection(db, `shops/${shopId}/orders`));

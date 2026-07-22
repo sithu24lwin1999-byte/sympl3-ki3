@@ -5,7 +5,7 @@ import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, MoreVertical, Filter, X, CheckCircle2 } from 'lucide-react';
 import { createManagedUser } from '@/lib/auth';
 import { db } from '@/lib/firebase';
-import { deleteRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
+import { deleteShopCascade, updateRecord, useLiveCollection } from '@/lib/firestore';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import type { BusinessType, Shop } from '@/types';
 
@@ -27,7 +27,9 @@ export default function AdminShops() {
 
   const [newShop, setNewShop] = useState({ name: '', businessType: 'RETAIL' as BusinessType, owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
+  const [operationError, setOperationError] = useState('');
 
   const handleCreateShop = async () => {
     const cleaned = {
@@ -63,10 +65,17 @@ export default function AdminShops() {
     setActiveMenu(null);
   };
 
-  const deleteShop = async (id: string) => {
-    if (!window.confirm('Delete this shop?')) return;
-    await deleteRecord('shops', id);
-    setActiveMenu(null);
+  const deleteShop = async (shop: Shop) => {
+    if (!window.confirm(`Permanently delete ${shop.name}?\n\nThis removes its owner/staff access and all shop data. This cannot be undone.`)) return;
+    setDeletingId(shop.id); setOperationError('');
+    try {
+      await deleteShopCascade(shop.id);
+      setActiveMenu(null);
+    } catch (issue) {
+      setOperationError(issue instanceof Error ? issue.message : 'Unable to delete this shop.');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const filteredShops = shops.filter(s =>
@@ -87,6 +96,7 @@ export default function AdminShops() {
       </div>
 
       <Card className="p-0 overflow-visible flex flex-col z-10 relative">
+        {operationError && <p className="m-4 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{operationError}</p>}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white rounded-t-3xl">
           <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 w-80">
             <Search className="w-4 h-4 text-slate-400 mr-2" />
@@ -173,7 +183,7 @@ export default function AdminShops() {
                         <button onClick={() => changeStatus(shop.id, 'SUSPENDED')} className="block w-full px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">Suspend</button>
                         <button onClick={() => changeStatus(shop.id, 'EXPIRED')} className="block w-full px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">Set Expired</button>
                         <div className="h-px bg-slate-100 my-1 w-full"></div>
-                        <button onClick={() => deleteShop(shop.id)} className="block w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left font-medium">Delete Shop</button>
+                        <button disabled={deletingId === shop.id} onClick={() => deleteShop(shop)} className="block w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left font-medium disabled:opacity-50">{deletingId === shop.id ? 'Deleting…' : 'Delete Shop'}</button>
                       </div>
                     )}
                   </td>

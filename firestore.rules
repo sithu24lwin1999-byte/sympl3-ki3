@@ -86,6 +86,7 @@ service cloud.firestore {
         allow read: if hasShopAccess(shopId);
         allow create: if hasShopAccess(shopId) && request.resource.data.employeeId == request.auth.uid;
         allow update: if isAdmin() || ownsShop(shopId) || resource.data.employeeId == request.auth.uid;
+        allow delete: if isAdmin();
       }
 
       match /settings/{settingId} {
@@ -130,7 +131,8 @@ service cloud.firestore {
       match /auditLogs/{logId} {
         allow read: if isAdmin() || ownsShop(shopId);
         allow create: if hasShopAccess(shopId) && request.resource.data.actorId == request.auth.uid;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
     }
 

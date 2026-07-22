@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { createUserWithEmailAndPassword, EmailAuthProvider, getAuth, getIdTokenResult, User as FirebaseUser, onAuthStateChanged, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updatePassword, verifyBeforeUpdateEmail } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { deleteApp, initializeApp } from 'firebase/app';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { auth, db } from './firebase';
@@ -51,6 +51,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }
   }), []);
+
+  useEffect(() => {
+    if (!firebaseUser || !user || user.role === 'ADMIN' || !user.shopId) return;
+    const endSession = () => {
+      setUser(null);
+      void signOut(auth);
+    };
+    const stopUser = onSnapshot(doc(db, 'users', firebaseUser.uid), snapshot => {
+      if (!snapshot.exists() || snapshot.data().active === false) endSession();
+    }, endSession);
+    const stopShop = onSnapshot(doc(db, 'shops', user.shopId), snapshot => {
+      if (!snapshot.exists() || snapshot.data().status !== 'ACTIVE') endSession();
+    }, endSession);
+    return () => { stopUser(); stopShop(); };
+  }, [firebaseUser, user]);
 
   const value = useMemo<AuthContextValue>(() => ({
     user, firebaseUser, loading,
