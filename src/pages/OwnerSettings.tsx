@@ -2,29 +2,44 @@ import React, { useEffect, useRef, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Input } from '@/components/ui';
 import { Save, Store, Receipt, Printer, Users, Loader2, CheckCircle2 } from 'lucide-react';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { useAuth } from '@/lib/auth';
+import { useLiveDocument } from '@/lib/firestore';
+import type { Shop } from '@/types';
 
 export default function OwnerSettings() {
+  const { user } = useAuth();
+  const shop = useLiveDocument<Shop>(user?.shopId ? `shops/${user.shopId}` : null);
   const [activeTab, setActiveTab] = useState('Shop Profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const savedSettings = JSON.parse(localStorage.getItem('ki3-owner-settings') || '{}');
-    const values: string[] = savedSettings[activeTab] || [];
-    requestAnimationFrame(() => {
+    if (!user?.shopId) return;
+    getDoc(doc(db, `shops/${user.shopId}/settings/general`)).then(snapshot => {
+      const savedSettings = snapshot.data()?.tabs || {};
+      const values: string[] = savedSettings[activeTab] || [];
       settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((field, index) => {
         if (values[index] !== undefined) field.value = values[index];
       });
     });
-  }, [activeTab]);
+  }, [activeTab, user?.shopId]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!user?.shopId) return;
     setIsSaving(true);
-    const savedSettings = JSON.parse(localStorage.getItem('ki3-owner-settings') || '{}');
+    const settingsRefDoc = doc(db, `shops/${user.shopId}/settings/general`);
+    const snapshot = await getDoc(settingsRefDoc);
+    const savedSettings = snapshot.data()?.tabs || {};
     const fields = settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select');
     savedSettings[activeTab] = fields ? Array.from(fields).map(field => (field as HTMLInputElement | HTMLSelectElement).value) : [];
-    localStorage.setItem('ki3-owner-settings', JSON.stringify(savedSettings));
+    await setDoc(settingsRefDoc, { tabs: savedSettings, updatedAt: new Date().toISOString() }, { merge: true });
+    if (activeTab === 'Shop Profile') {
+      const values = savedSettings[activeTab] as string[];
+      await updateDoc(doc(db, 'shops', user.shopId), { name: values[0] || shop?.name, phone: values[1] || shop?.phone, address: values[3] || shop?.address || '', updatedAt: new Date().toISOString() });
+    }
     setTimeout(() => {
       setIsSaving(false);
       setSaved(true);
@@ -60,21 +75,21 @@ export default function OwnerSettings() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Shop Name</label>
-                  <Input defaultValue="City Mart Branch 4" className="bg-white border-slate-200" />
+                  <Input defaultValue={shop?.name || ''} className="bg-white border-slate-200" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">Contact Phone</label>
-                    <Input defaultValue="09-123456789" className="bg-white border-slate-200" />
+                    <Input defaultValue={shop?.phone || ''} className="bg-white border-slate-200" />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">Email</label>
-                    <Input defaultValue="branch4@citymart.com" className="bg-white border-slate-200" />
+                    <Input defaultValue={shop?.ownerEmail || ''} disabled className="bg-white border-slate-200" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Address</label>
-                  <Input defaultValue="Mandalay, Myanmar" className="bg-white border-slate-200" />
+                  <Input defaultValue={shop?.address || ''} className="bg-white border-slate-200" />
                 </div>
               </div>
             </Card>

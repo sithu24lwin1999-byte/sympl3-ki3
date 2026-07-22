@@ -3,54 +3,63 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, Edit, Trash2, ShieldCheck, Mail, Phone, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePersistentState } from '@/lib/actions';
-
-const initialEmployees = [
-  { id: 'E001', name: 'Kyaw Zin', role: 'Manager', email: 'kyawzin@ki3.com', phone: '09-123456789', status: 'Active', shift: 'Morning' },
-  { id: 'E002', name: 'Su Su', role: 'Cashier', email: 'susu@ki3.com', phone: '09-987654321', status: 'Active', shift: 'Evening' },
-  { id: 'E003', name: 'Aung Aung', role: 'Barista', email: 'aungaung@ki3.com', phone: '09-111222333', status: 'Active', shift: 'Morning' },
-  { id: 'E004', name: 'Nilar', role: 'Cashier', email: 'nilar@ki3.com', phone: '09-444555666', status: 'Active', shift: 'Night' },
-];
+import { createManagedUser, useAuth } from '@/lib/auth';
+import { deleteRecord, setRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
+import type { Employee } from '@/types';
 
 export default function OwnerEmployees() {
+  const { user } = useAuth();
+  const employeesPath = user?.shopId ? `shops/${user.shopId}/employees` : null;
   const [search, setSearch] = useState('');
-  const [employees, setEmployees] = usePersistentState('ki3-employees', initialEmployees);
+  const { data: employees, loading, error } = useLiveCollection<Employee>(employeesPath);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [newEmployee, setNewEmployee] = useState({ name: '', role: 'Cashier', email: '', phone: '', shift: 'Morning' });
+  const [newEmployee, setNewEmployee] = useState({ name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning' });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  const handleAddEmployee = () => {
+  const handleAddEmployee = async () => {
     if (!newEmployee.name) return;
+    if (!employeesPath || !user?.shopId) return;
+    setSaving(true); setFormError('');
+    try {
+      let employeeId = editingId;
+      if (!employeeId) employeeId = await createManagedUser({ email: newEmployee.email, password: newEmployee.password, name: newEmployee.name, role: 'EMPLOYEE', shopId: user.shopId });
     const e = {
-      id: editingId || `E${Date.now().toString().slice(-6)}`,
       name: newEmployee.name,
       role: newEmployee.role,
       email: newEmployee.email,
       phone: newEmployee.phone,
       status: 'Active',
-      shift: newEmployee.shift
+      shift: newEmployee.shift,
+      shopId: user.shopId,
+      updatedAt: new Date().toISOString(),
     };
-    setEmployees(editingId ? employees.map(employee => employee.id === editingId ? e : employee) : [e, ...employees]);
+    await setRecord(employeesPath, employeeId, e);
+    await updateRecord('users', employeeId, { name: e.name, email: e.email.toLowerCase(), active: true });
     setShowAddModal(false);
     setEditingId(null);
-    setNewEmployee({ name: '', role: 'Cashier', email: '', phone: '', shift: 'Morning' });
+    setNewEmployee({ name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning' });
+    } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to save employee.'); }
+    finally { setSaving(false); }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this employee?')) return;
-    setEmployees(employees.filter(e => e.id !== id));
+    if (employeesPath) await deleteRecord(employeesPath, id);
+    await updateRecord('users', id, { active: false });
   };
 
-  const handleEdit = (employee: typeof initialEmployees[number]) => {
+  const handleEdit = (employee: Employee) => {
     setEditingId(employee.id);
-    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, phone: employee.phone, shift: employee.shift });
+    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, password: '', phone: employee.phone, shift: employee.shift });
     setShowAddModal(true);
   };
 
   const closeModal = () => {
     setShowAddModal(false);
     setEditingId(null);
-    setNewEmployee({ name: '', role: 'Cashier', email: '', phone: '', shift: 'Morning' });
+    setNewEmployee({ name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning' });
   };
 
   return (
@@ -69,6 +78,7 @@ export default function OwnerEmployees() {
       </div>
 
       <Card className="p-0 overflow-hidden flex flex-col">
+        {error && <p className="p-4 text-sm text-red-600">{error}</p>}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white">
           <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 w-80">
             <Search className="w-4 h-4 text-slate-400 mr-2" />
@@ -94,7 +104,7 @@ export default function OwnerEmployees() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {employees.filter(e => e.name.toLowerCase().includes(search.toLowerCase())).map((employee) => (
+              {!loading && employees.filter(e => e.name.toLowerCase().includes(search.toLowerCase())).map((employee) => (
                 <tr key={employee.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -219,14 +229,20 @@ export default function OwnerEmployees() {
                   className="bg-white border-slate-200"
                 />
               </div>
+              {!editingId && <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Temporary Password</label>
+                <Input type="password" minLength={8} value={newEmployee.password} onChange={(e) => setNewEmployee({...newEmployee, password: e.target.value})} className="bg-white border-slate-200" />
+              </div>}
             </div>
+
+            {formError && <p className="px-6 pb-3 text-sm text-red-600">{formError}</p>}
 
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
               <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={closeModal}>
                 Cancel
               </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddEmployee} disabled={!newEmployee.name.trim()}>
-                {editingId ? 'Update Employee' : 'Add Employee'}
+              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddEmployee} disabled={saving || !newEmployee.name.trim() || !newEmployee.email.trim() || (!editingId && newEmployee.password.length < 8)}>
+                {saving ? 'Saving…' : editingId ? 'Update Employee' : 'Add Employee'}
               </Button>
             </div>
           </div>

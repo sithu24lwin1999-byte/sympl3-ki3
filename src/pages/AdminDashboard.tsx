@@ -1,27 +1,29 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge } from '@/components/ui';
 import { formatCurrency, cn } from '@/lib/utils';
 import { TrendingUp, Users, Store, Activity, Plus } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-const revenueData = [
-  { name: 'Jan', value: 2400000 },
-  { name: 'Feb', value: 3100000 },
-  { name: 'Mar', value: 2800000 },
-  { name: 'Apr', value: 3900000 },
-  { name: 'May', value: 4500000 },
-  { name: 'Jun', value: 5200000 },
-];
+import { useLiveCollection, useLiveCollectionGroup } from '@/lib/firestore';
+import type { AppUser, Order, Shop } from '@/types';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const { data: shops } = useLiveCollection<Shop>('shops', 'createdAt');
+  const { data: users } = useLiveCollection<AppUser>('users');
+  const { data: orders } = useLiveCollectionGroup<Order>('orders', 'createdAt');
   const [revenueRange, setRevenueRange] = useState<'6m' | '1y'>('6m');
-  const chartData = revenueRange === '6m' ? revenueData : [
-    { name: 'Jul', value: 2100000 }, { name: 'Aug', value: 2300000 }, { name: 'Sep', value: 2500000 },
-    { name: 'Oct', value: 2700000 }, { name: 'Nov', value: 2900000 }, { name: 'Dec', value: 3200000 }, ...revenueData,
-  ];
+  const chartData = useMemo(() => {
+    const months = revenueRange === '6m' ? 6 : 12;
+    return Array.from({ length: months }, (_, offset) => {
+      const date = new Date(); date.setMonth(date.getMonth() - (months - 1 - offset));
+      const key = date.toISOString().slice(0, 7);
+      return { name: date.toLocaleDateString('en-US', { month: 'short' }), value: orders.filter(order => order.createdAt.startsWith(key) && order.status === 'COMPLETED').reduce((sum, order) => sum + order.total, 0) };
+    });
+  }, [orders, revenueRange]);
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthlyRevenue = orders.filter(order => order.createdAt.startsWith(monthKey) && order.status === 'COMPLETED').reduce((sum, order) => sum + order.total, 0);
 
   return (
     <DashboardLayout role="ADMIN">
@@ -38,7 +40,7 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Total Monthly Revenue</p>
-          <p className="text-2xl font-black text-[#2563EB]">5,200,000 <span className="text-sm">MMK</span></p>
+          <p className="text-2xl font-black text-[#2563EB]">{formatCurrency(monthlyRevenue)}</p>
           <div className="mt-2 flex items-center gap-1 text-emerald-500 font-bold text-xs">
             <span>+12.5% vs last month</span>
           </div>
@@ -46,7 +48,7 @@ export default function AdminDashboard() {
         
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Active Shops</p>
-          <p className="text-2xl font-black">1,248</p>
+          <p className="text-2xl font-black">{shops.filter(shop => shop.status === 'ACTIVE').length}</p>
           <div className="mt-2 flex items-center gap-1 text-emerald-500 font-bold text-xs">
             <span>+4 this week</span>
           </div>
@@ -54,7 +56,7 @@ export default function AdminDashboard() {
         
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Total Users</p>
-          <p className="text-2xl font-black">14,290</p>
+          <p className="text-2xl font-black">{users.length}</p>
           <div className="mt-2 flex items-center gap-1 text-emerald-500 font-bold text-xs">
             <span>+120 this week</span>
           </div>
@@ -108,14 +110,9 @@ export default function AdminDashboard() {
         <Card className="flex flex-col">
           <h3 className="font-bold text-slate-800 mb-6">Recent Subscriptions</h3>
           <div className="space-y-4 flex-1">
-            {[
-              { name: 'City Mart Branch 4', plan: '50000 MMK', status: 'ACTIVE' },
-              { name: 'Kyaw Cafe', plan: '30000 MMK', status: 'ACTIVE' },
-              { name: 'Mandalay Superstore', plan: '50000 MMK', status: 'EXPIRED' },
-              { name: 'Yangon Bakehouse', plan: '30000 MMK', status: 'ACTIVE' },
-            ].map((shop, i) => (
+            {shops.slice(0, 4).map((shop) => (
               <div 
-                key={i} 
+                key={shop.id}
                 className={cn(
                   "p-3 rounded-2xl border flex items-center justify-between",
                   shop.status === 'ACTIVE' ? "bg-white border-slate-100" : "bg-white border-slate-100 opacity-60"

@@ -3,19 +3,15 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, Filter, Edit, Trash2, X, Image as ImageIcon } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
-import { usePersistentState } from '@/lib/actions';
-
-const initialInventory = [
-  { id: 'P001', name: 'Premium Espresso', sku: 'BEV-001', category: 'Beverage', price: 4500, cost: 1500, stock: 124, status: 'In Stock', image: 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=100&h=100&fit=crop' },
-  { id: 'P002', name: 'Latte Art', sku: 'BEV-002', category: 'Beverage', price: 5500, cost: 1800, stock: 85, status: 'In Stock', image: 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=100&h=100&fit=crop' },
-  { id: 'P003', name: 'Strawberry Cake', sku: 'BAK-001', category: 'Bakery', price: 8000, cost: 3000, stock: 45, status: 'In Stock', image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=100&h=100&fit=crop' },
-  { id: 'P004', name: 'Croissant', sku: 'BAK-002', category: 'Bakery', price: 3500, cost: 1200, stock: 30, status: 'In Stock', image: 'https://images.unsplash.com/photo-1555507036-ab1e4006aaeb?w=100&h=100&fit=crop' },
-  { id: 'P005', name: 'Coffee Beans (1kg)', sku: 'RAW-001', category: 'Raw Material', price: 25000, cost: 18000, stock: 20, status: 'In Stock', image: 'https://images.unsplash.com/photo-1559525839-b184a4d698c7?w=100&h=100&fit=crop' },
-];
+import { useAuth } from '@/lib/auth';
+import { createRecord, deleteRecord, setRecord, useLiveCollection } from '@/lib/firestore';
+import type { Product } from '@/types';
 
 export default function OwnerInventory() {
+  const { user } = useAuth();
+  const inventoryPath = user?.shopId ? `shops/${user.shopId}/products` : null;
   const [search, setSearch] = useState('');
-  const [products, setProducts] = usePersistentState('ki3-inventory', initialInventory);
+  const { data: products, loading, error } = useLiveCollection<Product>(inventoryPath);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('All');
@@ -33,32 +29,36 @@ export default function OwnerInventory() {
     }
   };
 
-  const handleAddProduct = () => {
+  const handleAddProduct = async () => {
     if (!newProduct.name) return;
     const stock = parseInt(newProduct.stock) || 0;
     const p = {
-      id: editingId || `P${Date.now().toString().slice(-6)}`,
       name: newProduct.name,
       sku: newProduct.sku,
       category: newProduct.category,
       price: parseFloat(newProduct.price) || 0,
       cost: parseFloat(newProduct.cost) || 0,
       stock: stock,
+      minStock: 10,
       status: stock > 10 ? 'In Stock' : stock > 0 ? 'Low Stock' : 'Out of Stock',
-      image: newProduct.image || 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=100&h=100&fit=crop'
+      image: newProduct.image || 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=100&h=100&fit=crop',
+      shopId: user!.shopId!,
+      updatedAt: new Date().toISOString(),
     };
-    setProducts(editingId ? products.map(product => product.id === editingId ? p : product) : [p, ...products]);
+    if (!inventoryPath) return;
+    if (editingId) await setRecord(inventoryPath, editingId, p);
+    else await createRecord(inventoryPath, { ...p, createdAt: new Date().toISOString() });
     setShowAddModal(false);
     setEditingId(null);
     setNewProduct({ name: '', sku: '', category: 'Beverage', price: '', cost: '', stock: '', image: '' });
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this product?')) return;
-    setProducts(products.filter(p => p.id !== id));
+    if (inventoryPath) await deleteRecord(inventoryPath, id);
   };
 
-  const handleEdit = (product: typeof initialInventory[number]) => {
+  const handleEdit = (product: Product) => {
     setEditingId(product.id);
     setNewProduct({
       name: product.name, sku: product.sku, category: product.category,
@@ -122,6 +122,7 @@ export default function OwnerInventory() {
       </div>
 
       <Card className="p-0 overflow-hidden flex flex-col">
+        {error && <p className="p-4 text-sm text-red-600">{error}</p>}
         <div className="p-4 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between bg-white">
           <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 w-full md:w-80">
             <Search className="w-4 h-4 text-slate-400 mr-2" />
@@ -156,7 +157,7 @@ export default function OwnerInventory() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {filteredProducts.map((product) => (
+              {!loading && filteredProducts.map((product) => (
                 <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">

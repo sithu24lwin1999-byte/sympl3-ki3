@@ -1,92 +1,40 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { Button, Card, Input } from '@/components/ui';
-import { Store, User, ShieldCheck } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Store, Loader2 } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
 
 export default function Login() {
-  const navigate = useNavigate();
-  const [role, setRole] = useState<'ADMIN' | 'OWNER' | 'EMPLOYEE'>('ADMIN');
+  const { login, loginWithGoogle } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (role === 'ADMIN') navigate('/admin');
-    if (role === 'OWNER') navigate('/owner');
-    if (role === 'EMPLOYEE') navigate('/pos');
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true); setError('');
+    try { await action(); }
+    catch (issue) { setError(issue instanceof Error ? issue.message : 'Sign in failed.'); }
+    finally { setBusy(false); }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 p-6 relative overflow-hidden">
-      {/* Decorative Background Elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/20 rounded-full blur-[120px] pointer-events-none" />
-
-      <Card className="w-full max-w-md relative z-10 p-8 shadow-2xl shadow-blue-900/5 border-white/40 dark:border-gray-800/60">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,.3),transparent_45%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,.25),transparent_40%)]" />
+      <Card className="w-full max-w-md relative z-10 p-8 shadow-2xl border-white/10">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center mb-6 shadow-xl shadow-blue-500/30 rotate-3">
-            <Store className="w-8 h-8 text-white -rotate-3" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">KI3 POS</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">Sign in to your workspace</p>
+          <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center mb-5 shadow-xl shadow-blue-500/30"><Store className="w-8 h-8 text-white" /></div>
+          <h1 className="text-3xl font-black tracking-tight">KI3 POS</h1>
+          <p className="text-slate-500 mt-2">Secure access for admins, owners and staff</p>
         </div>
-
-        <form onSubmit={handleLogin} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email Address</label>
-            <Input type="email" placeholder="admin@ki3.com" defaultValue="demo@ki3.com" required />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
-            <Input type="password" placeholder="••••••••" defaultValue="password" required />
-          </div>
-
-          <div className="pt-2">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Simulate Role (Demo)</label>
-            <div className="grid grid-cols-3 gap-3">
-              <RoleSelector 
-                active={role === 'ADMIN'} 
-                onClick={() => setRole('ADMIN')} 
-                icon={<ShieldCheck className="w-4 h-4" />} 
-                label="Admin" 
-              />
-              <RoleSelector 
-                active={role === 'OWNER'} 
-                onClick={() => setRole('OWNER')} 
-                icon={<User className="w-4 h-4" />} 
-                label="Owner" 
-              />
-              <RoleSelector 
-                active={role === 'EMPLOYEE'} 
-                onClick={() => setRole('EMPLOYEE')} 
-                icon={<Store className="w-4 h-4" />} 
-                label="POS" 
-              />
-            </div>
-          </div>
-
-          <Button type="submit" className="w-full mt-6 h-14 text-lg">
-            Sign In
-          </Button>
+        <form onSubmit={(event) => { event.preventDefault(); run(() => login(email, password)); }} className="space-y-4">
+          <div><label className="block text-sm font-bold mb-2">Email</label><Input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required /></div>
+          <div><label className="block text-sm font-bold mb-2">Password</label><Input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></div>
+          {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
+          <Button type="submit" disabled={busy} className="w-full h-13">{busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Sign In</Button>
         </form>
+        <div className="my-5 flex items-center gap-3 text-xs text-slate-400"><span className="h-px flex-1 bg-slate-200" />OR<span className="h-px flex-1 bg-slate-200" /></div>
+        <Button type="button" variant="outline" disabled={busy} onClick={() => run(loginWithGoogle)} className="w-full bg-white">Continue with Google</Button>
       </Card>
     </div>
-  );
-}
-
-function RoleSelector({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all ${
-        active 
-          ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-900/20 dark:border-blue-500 dark:text-blue-400' 
-          : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50 dark:bg-gray-900 dark:border-gray-800'
-      }`}
-    >
-      {icon}
-      <span className="text-xs font-medium mt-1">{label}</span>
-    </button>
   );
 }

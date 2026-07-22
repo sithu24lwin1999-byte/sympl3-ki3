@@ -4,24 +4,21 @@ import { Card, Button, Badge } from '@/components/ui';
 import { Search, Filter, Clock, CheckCircle2, ChefHat, XCircle } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-
-const initialOrders = [
-  { id: 'ORD-0925', customer: 'Walk-in', type: 'Offline', items: 'Iced Americano × 2', total: 8000, status: 'PENDING', time: 'Just now' },
-  { id: 'ORD-0924', customer: 'Kyaw Kyaw', type: 'Online', items: 'Caramel Macchiato, Croissant', total: 9500, status: 'PREPARING', time: '5 mins ago' },
-  { id: 'ORD-0923', customer: 'Walk-in', type: 'Offline', items: 'Strawberry Cake, Latte', total: 13500, status: 'PREPARING', time: '8 mins ago' },
-  { id: 'ORD-0922', customer: 'Su Su', type: 'Online', items: 'Premium Espresso', total: 4500, status: 'COMPLETED', time: '15 mins ago' },
-  { id: 'ORD-0921', customer: 'Walk-in', type: 'Offline', items: 'Club Sandwich, Green Tea', total: 12500, status: 'COMPLETED', time: '22 mins ago' },
-  { id: 'ORD-0920', customer: 'Zaw Zaw', type: 'Online', items: 'Latte Art × 3', total: 16500, status: 'CANCELLED', time: '1 hour ago' },
-];
+import { useAuth } from '@/lib/auth';
+import { refundOrder, updateRecord, useLiveCollection } from '@/lib/firestore';
+import type { Order, OrderStatus } from '@/types';
 
 export default function OwnerOrders() {
+  const { user } = useAuth();
+  const ordersPath = user?.shopId ? `shops/${user.shopId}/orders` : null;
   const [filter, setFilter] = useState('ALL');
-  const [orders, setOrders] = useState(initialOrders);
+  const [search, setSearch] = useState('');
+  const { data: orders, loading, error } = useLiveCollection<Order>(ordersPath, 'createdAt');
 
-  const filteredOrders = orders.filter(o => filter === 'ALL' || o.status === filter);
+  const filteredOrders = orders.filter(o => (filter === 'ALL' || o.status === filter) && o.id.toLowerCase().includes(search.toLowerCase()));
 
-  const handleUpdateStatus = (id: string, newStatus: string) => {
-    setOrders(orders.map(o => o.id === id ? { ...o, status: newStatus } : o));
+  const handleUpdateStatus = async (id: string, newStatus: OrderStatus) => {
+    if (ordersPath) await updateRecord(ordersPath, id, { status: newStatus });
   };
 
   return (
@@ -53,13 +50,15 @@ export default function OwnerOrders() {
               type="text" 
               placeholder="Search by Order ID..." 
               className="bg-transparent border-none outline-none text-sm w-full text-slate-900"
+              value={search}
+              onChange={event => setSearch(event.target.value)}
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <AnimatePresence>
-            {filteredOrders.map((order) => (
+            {!loading && filteredOrders.map((order) => (
               <motion.div
                 layout
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -76,7 +75,7 @@ export default function OwnerOrders() {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-black text-lg text-slate-900">{order.id}</h3>
-                    <p className="text-xs text-slate-500 font-medium">{order.type} • {order.time}</p>
+                    <p className="text-xs text-slate-500 font-medium">{order.type} • {new Date(order.createdAt).toLocaleString()}</p>
                   </div>
                   <Badge 
                     className={cn(
@@ -92,7 +91,7 @@ export default function OwnerOrders() {
                 
                 <div className="flex-1 mb-4 border-t border-b border-slate-50 py-3">
                   <p className="text-sm font-bold text-slate-700 mb-1">Customer: <span className="font-medium text-slate-500">{order.customer}</span></p>
-                  <p className="text-sm font-bold text-slate-700">Items: <span className="font-medium text-slate-500">{order.items}</span></p>
+                  <p className="text-sm font-bold text-slate-700">Items: <span className="font-medium text-slate-500">{order.items.map(item => `${item.name} × ${item.quantity}`).join(', ')}</span></p>
                 </div>
 
                 <div className="flex justify-between items-center">
@@ -104,12 +103,16 @@ export default function OwnerOrders() {
                   {order.status === 'PREPARING' && (
                     <Button onClick={() => handleUpdateStatus(order.id, 'COMPLETED')} className="h-8 px-4 text-xs bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20 text-white rounded-full">Complete</Button>
                   )}
+                  {order.status === 'COMPLETED' && (
+                    <Button variant="outline" onClick={() => user?.shopId && window.confirm('Refund this order and restore stock?') && refundOrder(user.shopId, order)} className="h-8 px-4 text-xs text-red-600 rounded-full">Refund</Button>
+                  )}
                 </div>
               </motion.div>
             ))}
           </AnimatePresence>
         </div>
       </Card>
+      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
     </DashboardLayout>
   );
 }

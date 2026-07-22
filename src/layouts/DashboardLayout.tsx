@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui';
+import { useAuth } from '@/lib/auth';
 
 interface SidebarItem {
   icon: React.ElementType;
@@ -29,6 +30,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   const location = useLocation();
   const navigate = useNavigate();
   const navItems = role === 'ADMIN' ? adminNav : ownerNav;
+  const { user, logout } = useAuth();
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -86,18 +88,16 @@ export default function DashboardLayout({ children, role }: { children: React.Re
         )}
 
         <div className="pt-4 border-t border-white/5">
-          <Link to="/">
-            <Button variant="ghost" className="w-full justify-start text-slate-400 hover:text-white hover:bg-white/10 h-10 px-3">
+          <Button variant="ghost" onClick={logout} className="w-full justify-start text-slate-400 hover:text-white hover:bg-white/10 h-10 px-3">
               <LogOut className="w-5 h-5 mr-3 opacity-80" />
               Sign Out
-            </Button>
-          </Link>
+          </Button>
         </div>
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10 shrink-0">
+        <header className="min-h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
           <div className="hidden lg:block">
             <h2 className="text-lg font-bold">The Coffee Lab - Mandalay</h2>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
@@ -133,17 +133,21 @@ export default function DashboardLayout({ children, role }: { children: React.Re
               </div>
               <div className="flex items-center gap-3 ml-2 border-l border-slate-200 pl-6">
                 <div className="text-right hidden md:block">
-                  <p className="text-sm font-bold leading-none">{role === 'ADMIN' ? 'Aung Kyaw' : 'Kyaw Zin'}</p>
-                  <p className="text-[11px] text-slate-400">{role === 'ADMIN' ? 'System Admin' : 'Shop Owner'}</p>
+                  <p className="text-sm font-bold leading-none">{user?.name}</p>
+                  <p className="text-[11px] text-slate-400">{user?.role}</p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-blue-100 overflow-hidden border-2 border-white ring-1 ring-slate-200 flex items-center justify-center text-blue-700 font-bold">
-                  {role === 'ADMIN' ? 'AK' : 'KZ'}
+                  {user?.name?.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'KI'}
                 </div>
               </div>
             </div>
           </div>
         </header>
-        <div className="flex-1 p-8 overflow-y-auto">
+        <nav className="lg:hidden flex gap-2 overflow-x-auto px-4 py-2 bg-slate-900">
+          {navItems.map(item => <Link key={item.path} to={item.path} className={cn('shrink-0 px-3 py-2 rounded-xl text-xs font-bold', location.pathname === item.path ? 'bg-blue-600 text-white' : 'text-slate-300')}><item.icon className="w-4 h-4 inline mr-1" />{item.label}</Link>)}
+          <button onClick={logout} className="shrink-0 px-3 py-2 text-xs font-bold text-red-300">Sign Out</button>
+        </nav>
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto">
           <div className="max-w-7xl mx-auto h-full flex flex-col">
             {children}
           </div>

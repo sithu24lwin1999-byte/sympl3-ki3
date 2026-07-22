@@ -1,38 +1,41 @@
-import React, { useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, ShoppingBag, CreditCard, Banknote, Trash2, Plus, Minus, ScanBarcode, ArrowLeft, Printer, CheckCircle2, X } from 'lucide-react';
 import { Button, Input, Card, Badge } from '@/components/ui';
 import { formatCurrency, cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-
-const MOCK_PRODUCTS = [
-  { id: '1', name: 'Premium Espresso', price: 4500, category: 'Beverage', image: 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=300&h=300&fit=crop' },
-  { id: '2', name: 'Latte Art', price: 5500, category: 'Beverage', image: 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=300&h=300&fit=crop' },
-  { id: '3', name: 'Strawberry Cake', price: 8000, category: 'Bakery', image: 'https://images.unsplash.com/photo-1565958011703-44f9829ba187?w=300&h=300&fit=crop' },
-  { id: '4', name: 'Croissant', price: 3500, category: 'Bakery', image: 'https://images.unsplash.com/photo-1555507036-ab1e4006aaeb?w=300&h=300&fit=crop' },
-  { id: '5', name: 'Iced Americano', price: 4000, category: 'Beverage', image: 'https://images.unsplash.com/photo-1517701550927-30cf4ba1dba1?w=300&h=300&fit=crop' },
-  { id: '6', name: 'Club Sandwich', price: 6500, category: 'Food', image: 'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=300&h=300&fit=crop' },
-  { id: '7', name: 'Green Tea Frappe', price: 6000, category: 'Beverage', image: 'https://images.unsplash.com/photo-1536935338788-846bb9981813?w=300&h=300&fit=crop' },
-  { id: '8', name: 'Chocolate Muffin', price: 3000, category: 'Bakery', image: 'https://images.unsplash.com/photo-1606890737304-57a1ca8a5b62?w=300&h=300&fit=crop' },
-];
-
-const CATEGORIES = ['All', 'Beverage', 'Bakery', 'Food'];
+import { useAuth } from '@/lib/auth';
+import { completeSale, createRecord, setRecord, updateRecord, useLiveCollection, useLiveDocument } from '@/lib/firestore';
+import type { Order, Product, Shift, Shop } from '@/types';
+import { calculateTotals } from '@/lib/pos';
 
 export default function POSScreen() {
+  const { user, logout } = useAuth();
+  const shopId = user?.shopId || '';
+  const shop = useLiveDocument<Shop>(shopId ? `shops/${shopId}` : null);
+  const { data: products, error: productsError } = useLiveCollection<Product>(shopId ? `shops/${shopId}/products` : null);
+  const { data: shifts } = useLiveCollection<Shift>(shopId ? `shops/${shopId}/shifts` : null, 'openedAt');
+  const activeShift = shifts.find(shift => shift.employeeId === user?.id && shift.status === 'OPEN');
   const [activeCategory, setActiveCategory] = useState('All');
-  const [cart, setCart] = useState<{product: any, quantity: number}[]>([]);
+  const [cart, setCart] = useState<{product: Product, quantity: number}[]>([]);
   const [search, setSearch] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'KBZ Pay' | 'Wave Pay'>('Cash');
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [customer, setCustomer] = useState('Walk-in');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [checkoutError, setCheckoutError] = useState('');
+  const [busy, setBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const filteredProducts = MOCK_PRODUCTS.filter(p => 
+  const categories = useMemo(() => ['All', ...Array.from(new Set(products.map(product => product.category)))], [products]);
+  const filteredProducts = products.filter(p =>
     (activeCategory === 'All' || p.category === activeCategory) &&
-    p.name.toLowerCase().includes(search.toLowerCase())
+    `${p.name} ${p.sku} ${p.barcode || ''}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  const addToCart = (product: any) => {
+  const addToCart = (product: Product) => {
+    if (product.stock <= 0) return;
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
@@ -53,24 +56,59 @@ export default function POSScreen() {
   };
 
   const total = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-  const tax = total * 0.05; // 5% commercial tax
-  const grandTotal = total + tax;
+  const { discount, tax, total: grandTotal } = calculateTotals(total, discountPercent);
 
-  const handleCheckout = () => {
-    const order = {
-      items: [...cart],
-      total,
+  const handleCheckout = async () => {
+    if (!activeShift) { setCheckoutError('Open a cashier shift before taking payment.'); return; }
+    setBusy(true); setCheckoutError('');
+    const order: Omit<Order, 'id'> = {
+      shopId, customer: customer || 'Walk-in', customerPhone,
+      items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: item.product.price })),
+      subtotal: total,
       tax,
-      grandTotal,
+      discount,
+      total: grandTotal,
       paymentMethod,
-      time: new Date().toLocaleTimeString(),
-      id: 'ORD-' + Math.floor(1000 + Math.random() * 9000)
+      status: 'COMPLETED', type: navigator.onLine ? 'ONLINE' : 'OFFLINE', employeeId: user?.id, shiftId: activeShift.id,
+      createdAt: new Date().toISOString(),
     };
-    setLastOrder(order);
-    const orders = JSON.parse(localStorage.getItem('ki3-pos-orders') || '[]');
-    localStorage.setItem('ki3-pos-orders', JSON.stringify([order, ...orders]));
-    setShowReceipt(true);
-    setCart([]);
+    try {
+      let id = `OFF-${Date.now()}`;
+      if (navigator.onLine) id = await completeSale(shopId, order);
+      else {
+        const queued = JSON.parse(localStorage.getItem('ki3-offline-orders') || '[]');
+        localStorage.setItem('ki3-offline-orders', JSON.stringify([...queued, order]));
+      }
+      if (customerPhone) await setRecord(`shops/${shopId}/customers`, customerPhone.replace(/\W/g, ''), { name: customer, phone: customerPhone, updatedAt: new Date().toISOString() });
+      setLastOrder({ id, ...order, grandTotal }); setShowReceipt(true); setCart([]); setDiscountPercent(0);
+    } catch (issue) { setCheckoutError(issue instanceof Error ? issue.message : 'Checkout failed.'); }
+    finally { setBusy(false); }
+  };
+
+  useEffect(() => {
+    const sync = async () => {
+      const queued: Array<Omit<Order, 'id'>> = JSON.parse(localStorage.getItem('ki3-offline-orders') || '[]');
+      if (!queued.length || !shopId) return;
+      const remaining = [...queued];
+      while (remaining.length) {
+        try { await completeSale(shopId, remaining[0]); remaining.shift(); }
+        catch { break; }
+      }
+      localStorage.setItem('ki3-offline-orders', JSON.stringify(remaining));
+    };
+    window.addEventListener('online', sync); if (navigator.onLine) sync();
+    return () => window.removeEventListener('online', sync);
+  }, [shopId]);
+
+  const toggleShift = async () => {
+    if (!shopId || !user) return;
+    if (activeShift) {
+      const closingCash = Number(window.prompt('Closing cash amount', '0'));
+      if (Number.isFinite(closingCash)) await updateRecord(`shops/${shopId}/shifts`, activeShift.id, { status: 'CLOSED', closingCash, closedAt: new Date().toISOString() });
+    } else {
+      const openingCash = Number(window.prompt('Opening cash amount', '0'));
+      if (Number.isFinite(openingCash)) await createRecord(`shops/${shopId}/shifts`, { shopId, employeeId: user.id, employeeName: user.name, openingCash, openedAt: new Date().toISOString(), status: 'OPEN' });
+    }
   };
 
   return (
@@ -78,27 +116,28 @@ export default function POSScreen() {
       {/* Header */}
       <header className="h-20 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0 shadow-sm z-10 relative">
         <div className="flex items-center space-x-6">
-          <Link to="/">
+          <button onClick={logout}>
             <Button variant="ghost" className="px-3">
               <ArrowLeft className="w-5 h-5 mr-2" /> Back
             </Button>
-          </Link>
+          </button>
           <div className="w-px h-8 bg-slate-200" />
-          <h1 className="text-xl font-bold tracking-tight">KI3 POS • City Mart</h1>
-          <Badge className="hidden md:inline-flex bg-blue-100 text-blue-800 border-none">Offline Mode Active</Badge>
+          <h1 className="text-xl font-bold tracking-tight">KI3 POS • {shop?.name || 'Shop'}</h1>
+          <Badge className={navigator.onLine ? 'hidden md:inline-flex bg-emerald-100 text-emerald-800 border-none' : 'hidden md:inline-flex bg-amber-100 text-amber-800 border-none'}>{navigator.onLine ? 'Cloud Sync Active' : 'Offline Queue Active'}</Badge>
         </div>
         <div className="flex items-center space-x-4">
           <div className="text-right mr-4 hidden md:block">
-            <p className="text-sm font-bold">Cashier: Kyaw Zin</p>
+            <p className="text-sm font-bold">Cashier: {user?.name}</p>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
           </div>
           <button aria-label="Scan barcode" onClick={() => searchRef.current?.focus()} className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center hover:bg-blue-100">
             <ScanBarcode className="w-6 h-6 text-slate-600" />
           </button>
+          <Button variant={activeShift ? 'danger' : 'primary'} onClick={toggleShift} className="hidden md:inline-flex h-10 px-3">{activeShift ? 'Close Shift' : 'Open Shift'}</Button>
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Left Panel: Products */}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="p-6 pb-2 shrink-0 space-y-4">
@@ -114,7 +153,7 @@ export default function POSScreen() {
             </div>
             
             <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-hide">
-              {CATEGORIES.map(cat => (
+              {categories.map(cat => (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
@@ -158,7 +197,7 @@ export default function POSScreen() {
         </div>
 
         {/* Right Panel: Cart */}
-        <div className="w-[420px] bg-white border-l border-slate-200 flex flex-col shrink-0 z-10 shadow-xl">
+        <div className="w-full lg:w-[420px] max-h-[52vh] lg:max-h-none bg-white border-l border-slate-200 flex flex-col shrink-0 z-10 shadow-xl">
           <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
             <h2 className="text-xl font-bold flex items-center">
               <ShoppingBag className="w-5 h-5 mr-3 text-blue-600" />
@@ -206,6 +245,11 @@ export default function POSScreen() {
           </div>
 
           <div className="p-6 bg-slate-50 border-t border-slate-200 shrink-0">
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <Input value={customer} onChange={e => setCustomer(e.target.value)} placeholder="Customer name" className="h-10 bg-white" />
+              <Input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="Phone (optional)" className="h-10 bg-white" />
+              <label className="col-span-2 flex items-center justify-between text-xs font-bold text-slate-500">Discount %<Input type="number" min="0" max="100" value={discountPercent} onChange={e => setDiscountPercent(Number(e.target.value))} className="w-24 h-9 bg-white" /></label>
+            </div>
             <div className="space-y-3 mb-6">
               <div className="flex justify-between text-slate-500 text-sm font-bold uppercase tracking-wider">
                 <span>Subtotal</span>
@@ -215,6 +259,7 @@ export default function POSScreen() {
                 <span>Tax (5%)</span>
                 <span>{formatCurrency(tax)}</span>
               </div>
+              <div className="flex justify-between text-slate-500 text-sm font-bold uppercase tracking-wider"><span>Discount</span><span>-{formatCurrency(discount)}</span></div>
               <div className="flex justify-between text-slate-900 text-2xl font-black pt-3 border-t border-slate-200">
                 <span>Total</span>
                 <span className="text-blue-600">{formatCurrency(grandTotal)}</span>
@@ -238,11 +283,13 @@ export default function POSScreen() {
             
             <Button 
               className="w-full h-16 text-lg font-bold rounded-2xl shadow-xl shadow-blue-500/30 bg-[#2563EB] hover:bg-blue-700 text-white" 
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || busy || !activeShift}
               onClick={handleCheckout}
             >
-              <Banknote className="w-6 h-6 mr-2" /> Pay {formatCurrency(grandTotal)} · {paymentMethod}
+              <Banknote className="w-6 h-6 mr-2" /> {busy ? 'Processing…' : `Pay ${formatCurrency(grandTotal)} · ${paymentMethod}`}
             </Button>
+            {checkoutError && <p className="mt-2 text-xs font-medium text-red-600">{checkoutError}</p>}
+            {productsError && <p className="mt-2 text-xs font-medium text-red-600">{productsError}</p>}
           </div>
         </div>
       </div>
@@ -255,7 +302,7 @@ export default function POSScreen() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl"
+              className="receipt bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl"
             >
               <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
                 <div className="flex items-center gap-2 text-emerald-600">
@@ -269,17 +316,17 @@ export default function POSScreen() {
 
               <div className="p-8 pb-4">
                 <div className="text-center mb-6">
-                  <h2 className="text-2xl font-black text-slate-900">City Mart</h2>
-                  <p className="text-sm text-slate-500 font-medium">Branch 4 • Mandalay</p>
+                  <h2 className="text-2xl font-black text-slate-900">{shop?.name || 'KI3 POS'}</h2>
+                  <p className="text-sm text-slate-500 font-medium">{shop?.address || shop?.phone}</p>
                   <p className="text-xs text-slate-400 mt-1">Order #{lastOrder.id}</p>
-                  <p className="text-xs text-slate-400">{lastOrder.time}</p>
+                  <p className="text-xs text-slate-400">{new Date(lastOrder.createdAt).toLocaleString()}</p>
                 </div>
 
                 <div className="space-y-3 mb-6 border-y border-dashed border-slate-300 py-4">
                   {lastOrder.items.map((item: any, i: number) => (
                     <div key={i} className="flex justify-between text-sm">
-                      <span className="font-bold text-slate-700">{item.quantity}x {item.product.name}</span>
-                      <span className="font-bold text-slate-900">{formatCurrency(item.product.price * item.quantity)}</span>
+                      <span className="font-bold text-slate-700">{item.quantity}x {item.name}</span>
+                      <span className="font-bold text-slate-900">{formatCurrency(item.price * item.quantity)}</span>
                     </div>
                   ))}
                 </div>
@@ -287,12 +334,13 @@ export default function POSScreen() {
                 <div className="space-y-2 mb-6">
                   <div className="flex justify-between text-sm">
                     <span className="font-bold text-slate-500">Subtotal</span>
-                    <span className="font-bold text-slate-700">{formatCurrency(lastOrder.total)}</span>
+                    <span className="font-bold text-slate-700">{formatCurrency(lastOrder.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="font-bold text-slate-500">Tax (5%)</span>
                     <span className="font-bold text-slate-700">{formatCurrency(lastOrder.tax)}</span>
                   </div>
+                  <div className="flex justify-between text-sm"><span className="font-bold text-slate-500">Discount</span><span className="font-bold text-slate-700">-{formatCurrency(lastOrder.discount)}</span></div>
                   <div className="flex justify-between text-lg pt-2">
                     <span className="font-black text-slate-900">Total</span>
                     <span className="font-black text-blue-600">{formatCurrency(lastOrder.grandTotal)}</span>

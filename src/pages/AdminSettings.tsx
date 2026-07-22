@@ -3,6 +3,8 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Input } from '@/components/ui';
 import { Save, Globe, Shield, CreditCard, Bell, Database, Loader2, CheckCircle2 } from 'lucide-react';
 import { downloadText } from '@/lib/actions';
+import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export default function AdminSettings() {
   const [activeTab, setActiveTab] = useState('General Settings');
@@ -18,22 +20,24 @@ export default function AdminSettings() {
   const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const savedSettings = JSON.parse(localStorage.getItem('ki3-admin-settings') || '{}');
-    const values: string[] = savedSettings[activeTab] || [];
-    requestAnimationFrame(() => {
+    getDoc(doc(db, 'settings', 'platform')).then(snapshot => {
+      const savedSettings = snapshot.data()?.tabs || {};
+      const values: string[] = savedSettings[activeTab] || [];
+      if (snapshot.data()?.basicPlanPrice) setBasicPlanPrice(snapshot.data()!.basicPlanPrice);
+      if (snapshot.data()?.premiumPlanPrice) setPremiumPlanPrice(snapshot.data()!.premiumPlanPrice);
       settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((field, index) => {
         if (values[index] !== undefined) field.value = values[index];
       });
     });
   }, [activeTab]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    const savedSettings = JSON.parse(localStorage.getItem('ki3-admin-settings') || '{}');
+    const snapshot = await getDoc(doc(db, 'settings', 'platform'));
+    const savedSettings = snapshot.data()?.tabs || {};
     const fields = settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select');
     savedSettings[activeTab] = fields ? Array.from(fields).map(field => (field as HTMLInputElement | HTMLSelectElement).value) : [];
-    localStorage.setItem('ki3-admin-settings', JSON.stringify(savedSettings));
-    localStorage.setItem('ki3-plan-prices', JSON.stringify({ basicPlanPrice, premiumPlanPrice }));
+    await setDoc(doc(db, 'settings', 'platform'), { tabs: savedSettings, basicPlanPrice, premiumPlanPrice, updatedAt: new Date().toISOString() }, { merge: true });
     setTimeout(() => {
       setIsSaving(false);
       setSaved(true);
@@ -41,18 +45,21 @@ export default function AdminSettings() {
     }, 800);
   };
 
-  const handleBackup = () => {
+  const handleBackup = async () => {
     setIsBackingUp(true);
-    setTimeout(() => {
-      const backup = Object.fromEntries(Array.from({ length: localStorage.length }, (_, index) => {
-        const key = localStorage.key(index)!;
-        return [key, localStorage.getItem(key)];
-      }));
+    try {
+      const shopSnapshots = await getDocs(collection(db, 'shops'));
+      const shops = await Promise.all(shopSnapshots.docs.map(async shop => ({ id: shop.id, ...shop.data(),
+        products: (await getDocs(collection(db, `shops/${shop.id}/products`))).docs.map(item => ({ id: item.id, ...item.data() })),
+        employees: (await getDocs(collection(db, `shops/${shop.id}/employees`))).docs.map(item => ({ id: item.id, ...item.data() })),
+        orders: (await getDocs(collection(db, `shops/${shop.id}/orders`))).docs.map(item => ({ id: item.id, ...item.data() })),
+      })));
+      const backup = { exportedAt: new Date().toISOString(), shops };
       downloadText(`ki3-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(backup, null, 2), 'application/json');
       setIsBackingUp(false);
       setBackupDone(true);
       setTimeout(() => setBackupDone(false), 3000);
-    }, 1500);
+    } catch { setIsBackingUp(false); }
   };
 
   return (

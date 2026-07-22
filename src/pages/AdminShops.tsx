@@ -3,19 +3,15 @@ import { useLocation } from 'react-router-dom';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, MoreVertical, Filter, X, CheckCircle2 } from 'lucide-react';
-import { usePersistentState } from '@/lib/actions';
-
-const initialShops = [
-  { id: 'S001', name: 'City Mart Branch 4', owner: 'Kyaw Zin', phone: '09-123456789', plan: '50000 MMK', status: 'ACTIVE', expiry: '2026-12-31' },
-  { id: 'S002', name: 'Kyaw Cafe', owner: 'Aung Kyaw', phone: '09-987654321', plan: '30000 MMK', status: 'ACTIVE', expiry: '2026-10-15' },
-  { id: 'S003', name: 'Mandalay Superstore', owner: 'Su Su', phone: '09-111222333', plan: '50000 MMK', status: 'EXPIRED', expiry: '2026-07-01' },
-  { id: 'S004', name: 'Yangon Bakehouse', owner: 'Zaw Zaw', phone: '09-444555666', plan: '30000 MMK', status: 'ACTIVE', expiry: '2027-01-20' },
-  { id: 'S005', name: 'The Coffee Lab', owner: 'Myo Myo', phone: '09-777888999', plan: '30000 MMK', status: 'SUSPENDED', expiry: '2026-08-12' },
-];
+import { createManagedUser } from '@/lib/auth';
+import { db } from '@/lib/firebase';
+import { deleteRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
+import type { Shop } from '@/types';
 
 export default function AdminShops() {
   const location = useLocation();
-  const [shops, setShops] = usePersistentState('ki3-shops', initialShops);
+  const { data: shops, loading, error } = useLiveCollection<Shop>('shops', 'createdAt');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -29,30 +25,32 @@ export default function AdminShops() {
     }
   }, [location.state]);
 
-  const [newShop, setNewShop] = useState({ name: '', owner: '', phone: '', plan: '30000 MMK' });
+  const [newShop, setNewShop] = useState({ name: '', owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  const handleCreateShop = () => {
+  const handleCreateShop = async () => {
     if (!newShop.name || !newShop.owner) return;
-    const newId = `S${Date.now().toString().slice(-6)}`;
-    const shop = {
-      ...newShop,
-      id: newId,
-      status: 'ACTIVE',
-      expiry: '2027-12-31'
-    };
-    setShops([shop, ...shops]);
-    setShowCreateModal(false);
-    setNewShop({ name: '', owner: '', phone: '', plan: '30000 MMK' });
+    setSaving(true); setFormError('');
+    try {
+      const shopRef = doc(collection(db, 'shops'));
+      const ownerId = await createManagedUser({ email: newShop.ownerEmail, password: newShop.password, name: newShop.owner, role: 'OWNER', shopId: shopRef.id });
+      const { password: _password, ...shopData } = newShop;
+      await setDoc(shopRef, { ...shopData, ownerId, ownerEmail: newShop.ownerEmail.toLowerCase(), status: 'ACTIVE', expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10), createdAt: new Date().toISOString() });
+      setShowCreateModal(false);
+      setNewShop({ name: '', owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
+    } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to create shop.'); }
+    finally { setSaving(false); }
   };
 
-  const changeStatus = (id: string, newStatus: string) => {
-    setShops(shops.map(shop => shop.id === id ? { ...shop, status: newStatus } : shop));
+  const changeStatus = async (id: string, newStatus: string) => {
+    await updateRecord('shops', id, { status: newStatus });
     setActiveMenu(null);
   };
 
-  const deleteShop = (id: string) => {
+  const deleteShop = async (id: string) => {
     if (!window.confirm('Delete this shop?')) return;
-    setShops(shops.filter(shop => shop.id !== id));
+    await deleteRecord('shops', id);
     setActiveMenu(null);
   };
 
@@ -96,7 +94,8 @@ export default function AdminShops() {
           </label>
         </div>
 
-        <div className="overflow-visible min-h-[300px]">
+        {error && <p className="p-4 text-sm text-red-600">{error}</p>}
+        <div className="overflow-x-auto min-h-[300px]">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
@@ -109,7 +108,7 @@ export default function AdminShops() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {filteredShops.map((shop) => (
+              {!loading && filteredShops.map((shop) => (
                 <tr key={shop.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -199,6 +198,14 @@ export default function AdminShops() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Owner Email</label>
+                <Input type="email" value={newShop.ownerEmail} onChange={(e) => setNewShop({...newShop, ownerEmail: e.target.value})} className="bg-white border-slate-200" required />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Temporary Password</label>
+                <Input type="password" minLength={8} value={newShop.password} onChange={(e) => setNewShop({...newShop, password: e.target.value})} className="bg-white border-slate-200" required />
+              </div>
+              <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Owner Name</label>
                 <Input 
                   placeholder="Owner's full name" 
@@ -229,12 +236,14 @@ export default function AdminShops() {
               </div>
             </div>
 
+            {formError && <p className="px-6 pb-3 text-sm text-red-600">{formError}</p>}
+
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
               <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={() => setShowCreateModal(false)}>
                 Cancel
               </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleCreateShop} disabled={!newShop.name.trim() || !newShop.owner.trim()}>
-                Create Shop
+              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleCreateShop} disabled={saving || !newShop.name.trim() || !newShop.owner.trim() || !newShop.ownerEmail.trim() || newShop.password.length < 8}>
+                {saving ? 'Creating…' : 'Create Shop'}
               </Button>
             </div>
           </div>

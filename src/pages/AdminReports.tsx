@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button } from '@/components/ui';
 import { Download, TrendingUp, DollarSign, Package, ShoppingCart, Loader2, CheckCircle2 } from 'lucide-react';
@@ -7,18 +7,25 @@ import { formatCurrency } from '@/lib/utils';
 import { downloadCsv } from '@/lib/actions';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
-const monthlyData = [
-  { name: 'Jan', revenue: 4000000, orders: 2400 },
-  { name: 'Feb', revenue: 3000000, orders: 1398 },
-  { name: 'Mar', revenue: 2000000, orders: 9800 },
-  { name: 'Apr', revenue: 2780000, orders: 3908 },
-  { name: 'May', revenue: 1890000, orders: 4800 },
-  { name: 'Jun', revenue: 2390000, orders: 3800 },
-  { name: 'Jul', revenue: 3490000, orders: 4300 },
-];
+import { useLiveCollection, useLiveCollectionGroup } from '@/lib/firestore';
+import type { Order, Shop } from '@/types';
 
 export default function AdminReports() {
+  const { data: orders } = useLiveCollectionGroup<Order>('orders', 'createdAt');
+  const { data: shops } = useLiveCollection<Shop>('shops');
+  const completed = orders.filter(order => order.status === 'COMPLETED');
+  const liveMonthlyData = useMemo(() => Array.from({ length: 7 }, (_, offset) => {
+    const date = new Date(); date.setMonth(date.getMonth() - (6 - offset));
+    const key = date.toISOString().slice(0, 7);
+    const rows = completed.filter(order => order.createdAt.startsWith(key));
+    return { name: date.toLocaleDateString('en-US', { month: 'short' }), revenue: rows.reduce((sum, order) => sum + order.total, 0), orders: rows.length };
+  }), [completed]);
+  const grossVolume = completed.reduce((sum, order) => sum + order.total, 0);
+  const productCount = completed.reduce((sum, order) => sum + order.items.reduce((count, item) => count + item.quantity, 0), 0);
+  const topShops = shops.map(shop => {
+    const shopOrders = completed.filter(order => order.shopId === shop.id);
+    return { ...shop, sales: shopOrders.reduce((sum, order) => sum + order.total, 0), orders: shopOrders.length };
+  }).sort((a, b) => b.sales - a.sales).slice(0, 5);
   const [exportCsvState, setExportCsvState] = useState<'idle' | 'loading' | 'done'>('idle');
   const [exportPdfState, setExportPdfState] = useState<'idle' | 'loading' | 'done'>('idle');
 
@@ -27,7 +34,7 @@ export default function AdminReports() {
     requestAnimationFrame(() => {
       downloadCsv('ki3-global-report.csv', [
         ['Month', 'Revenue (MMK)', 'Orders'],
-        ...monthlyData.map(row => [row.name, row.revenue, row.orders]),
+        ...liveMonthlyData.map(row => [row.name, row.revenue, row.orders]),
       ]);
       setExportCsvState('done');
       setTimeout(() => setExportCsvState('idle'), 2000);
@@ -45,7 +52,7 @@ export default function AdminReports() {
       autoTable(doc, {
         startY: 32,
         head: [['Month', 'Revenue (MMK)', 'Orders']],
-        body: monthlyData.map(row => [row.name, row.revenue.toLocaleString(), row.orders.toLocaleString()]),
+        body: liveMonthlyData.map(row => [row.name, row.revenue.toLocaleString(), row.orders.toLocaleString()]),
       });
       doc.save('ki3-global-report.pdf');
       setExportPdfState('done');
@@ -83,10 +90,10 @@ export default function AdminReports() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <ReportCard title="Gross Volume" value={formatCurrency(125000000)} icon={DollarSign} trend="+15%" />
-        <ReportCard title="Total Orders" value="84,592" icon={ShoppingCart} trend="+8%" />
-        <ReportCard title="Total Products Sold" value="1.2M" icon={Package} trend="+12%" />
-        <ReportCard title="Average Order Value" value={formatCurrency(14500)} icon={TrendingUp} trend="+2%" />
+        <ReportCard title="Gross Volume" value={formatCurrency(grossVolume)} icon={DollarSign} trend="Live" />
+        <ReportCard title="Total Orders" value={completed.length.toLocaleString()} icon={ShoppingCart} trend="Live" />
+        <ReportCard title="Total Products Sold" value={productCount.toLocaleString()} icon={Package} trend="Live" />
+        <ReportCard title="Average Order Value" value={formatCurrency(completed.length ? grossVolume / completed.length : 0)} icon={TrendingUp} trend="Live" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -94,7 +101,7 @@ export default function AdminReports() {
           <h3 className="font-bold text-slate-800 mb-6">Revenue Overview</h3>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthlyData}>
+              <AreaChart data={liveMonthlyData}>
                 <defs>
                   <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
@@ -123,7 +130,7 @@ export default function AdminReports() {
           <h3 className="font-bold text-slate-800 mb-6">Orders Volume</h3>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData}>
+              <BarChart data={liveMonthlyData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" opacity={0.5} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 'bold' }} dy={10} />
                 <YAxis 
@@ -156,24 +163,12 @@ export default function AdminReports() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              <tr>
-                <td className="py-4 font-bold text-slate-900">City Mart Branch 4</td>
-                <td className="py-4 font-medium">{formatCurrency(45000000)}</td>
-                <td className="py-4 font-medium text-slate-600">12,450</td>
-                <td className="py-4 font-bold text-emerald-500 text-right">+24%</td>
-              </tr>
-              <tr>
-                <td className="py-4 font-bold text-slate-900">The Coffee Lab</td>
-                <td className="py-4 font-medium">{formatCurrency(28000000)}</td>
-                <td className="py-4 font-medium text-slate-600">8,200</td>
-                <td className="py-4 font-bold text-emerald-500 text-right">+18%</td>
-              </tr>
-              <tr>
-                <td className="py-4 font-bold text-slate-900">Yangon Bakehouse</td>
-                <td className="py-4 font-medium">{formatCurrency(19500000)}</td>
-                <td className="py-4 font-medium text-slate-600">5,430</td>
-                <td className="py-4 font-bold text-emerald-500 text-right">+12%</td>
-              </tr>
+              {topShops.map(shop => <tr key={shop.id}>
+                <td className="py-4 font-bold text-slate-900">{shop.name}</td>
+                <td className="py-4 font-medium">{formatCurrency(shop.sales)}</td>
+                <td className="py-4 font-medium text-slate-600">{shop.orders}</td>
+                <td className="py-4 font-bold text-emerald-500 text-right">Live</td>
+              </tr>)}
             </tbody>
           </table>
         </div>

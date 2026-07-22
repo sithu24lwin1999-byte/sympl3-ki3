@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -7,25 +7,38 @@ import { Card, Button, Badge } from '@/components/ui';
 import { formatCurrency, cn } from '@/lib/utils';
 import { ShoppingCart, DollarSign, Package, AlertCircle, Sparkles, TrendingUp, TrendingDown, Loader2, CheckCircle2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-const hourlySales = [
-  { time: '08:00', sales: 45000 },
-  { time: '10:00', sales: 120000 },
-  { time: '12:00', sales: 350000 },
-  { time: '14:00', sales: 280000 },
-  { time: '16:00', sales: 190000 },
-  { time: '18:00', sales: 420000 },
-  { time: '20:00', sales: 310000 },
-];
-const weeklySales = [
-  { time: 'Mon', sales: 1450000 }, { time: 'Tue', sales: 1720000 }, { time: 'Wed', sales: 1380000 },
-  { time: 'Thu', sales: 1910000 }, { time: 'Fri', sales: 2250000 }, { time: 'Sat', sales: 2680000 }, { time: 'Sun', sales: 1850000 },
-];
+import { useAuth } from '@/lib/auth';
+import { useLiveCollection, useLiveDocument } from '@/lib/firestore';
+import type { Order, Product, Shop } from '@/types';
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const shopId = user?.shopId;
+  const shop = useLiveDocument<Shop>(shopId ? `shops/${shopId}` : null);
+  const { data: orders } = useLiveCollection<Order>(shopId ? `shops/${shopId}/orders` : null, 'createdAt');
+  const { data: products } = useLiveCollection<Product>(shopId ? `shops/${shopId}/products` : null);
   const [isExporting, setIsExporting] = useState<'idle' | 'loading' | 'done'>('idle');
   const [salesRange, setSalesRange] = useState<'today' | 'weekly'>('today');
+  const today = new Date().toISOString().slice(0, 10);
+  const todayOrders = orders.filter(order => order.createdAt.startsWith(today) && order.status === 'COMPLETED');
+  const revenue = todayOrders.reduce((sum, order) => sum + order.total, 0);
+  const lowStock = products.filter(product => product.stock <= product.minStock).length;
+  const profit = todayOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => {
+    const product = products.find(candidate => candidate.id === item.productId);
+    return itemSum + ((item.price - (product?.cost || 0)) * item.quantity);
+  }, 0), 0);
+  const liveSales = useMemo(() => {
+    if (salesRange === 'today') return Array.from({ length: 13 }, (_, index) => {
+      const hour = index + 8;
+      return { time: `${String(hour).padStart(2, '0')}:00`, sales: todayOrders.filter(order => new Date(order.createdAt).getHours() === hour).reduce((sum, order) => sum + order.total, 0) };
+    });
+    return Array.from({ length: 7 }, (_, offset) => {
+      const date = new Date(); date.setDate(date.getDate() - (6 - offset));
+      const key = date.toISOString().slice(0, 10);
+      return { time: date.toLocaleDateString('en-US', { weekday: 'short' }), sales: orders.filter(order => order.createdAt.startsWith(key) && order.status === 'COMPLETED').reduce((sum, order) => sum + order.total, 0) };
+    });
+  }, [orders, salesRange, todayOrders]);
 
   const handleExport = () => {
     setIsExporting('loading');
@@ -38,9 +51,9 @@ export default function OwnerDashboard() {
     
     doc.setFontSize(11);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 14, 30);
-    doc.text('Shop: City Mart Branch 4', 14, 36);
+    doc.text(`Shop: ${shop?.name || 'My Shop'}`, 14, 36);
 
-    const tableData = hourlySales.map(row => [row.time, formatCurrency(row.sales)]);
+    const tableData = liveSales.map(row => [row.time, formatCurrency(row.sales)]);
     
     autoTable(doc, {
       startY: 45,
@@ -64,7 +77,7 @@ export default function OwnerDashboard() {
       <div className="flex justify-between items-end mb-8">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">My Shop Dashboard</h1>
-          <p className="text-slate-500">City Mart Branch 4 • Subscription Active (24 days left)</p>
+          <p className="text-slate-500">{shop?.name || 'My Shop'} • Subscription {shop?.status || 'Loading'}</p>
         </div>
         <Button 
           variant="outline" 
@@ -80,7 +93,7 @@ export default function OwnerDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Today's Revenue</p>
-          <p className="text-2xl font-black text-[#2563EB]">1,850,000 <span className="text-sm">MMK</span></p>
+          <p className="text-2xl font-black text-[#2563EB]">{formatCurrency(revenue)}</p>
           <div className="mt-2 flex items-center gap-1 text-emerald-500 font-bold text-xs">
             <span>+12.5% vs yesterday</span>
           </div>
@@ -88,7 +101,7 @@ export default function OwnerDashboard() {
         
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Total Orders</p>
-          <p className="text-2xl font-black">142</p>
+          <p className="text-2xl font-black">{todayOrders.length}</p>
           <div className="mt-2 flex items-center gap-1 text-emerald-500 font-bold text-xs">
             <span>24 Online / 118 Offline</span>
           </div>
@@ -96,7 +109,7 @@ export default function OwnerDashboard() {
         
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Low Stock Items</p>
-          <p className="text-2xl font-black text-orange-500">08</p>
+          <p className="text-2xl font-black text-orange-500">{lowStock}</p>
           <div className="mt-2 flex items-center gap-1 text-slate-400 font-bold text-xs">
             <span>Critical: Coffee Beans</span>
           </div>
@@ -104,7 +117,7 @@ export default function OwnerDashboard() {
 
         <div className="bg-[#2563EB] p-5 rounded-3xl shadow-lg shadow-blue-200">
           <p className="text-white/70 text-xs font-semibold uppercase tracking-wider mb-1">Net Profit</p>
-          <p className="text-2xl font-black text-white">420,000 <span className="text-sm opacity-80">MMK</span></p>
+          <p className="text-2xl font-black text-white">{formatCurrency(profit)}</p>
           <div className="mt-2 flex items-center gap-1 text-white/90 font-bold text-xs">
             <span>Higher than target</span>
           </div>
@@ -122,7 +135,7 @@ export default function OwnerDashboard() {
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={salesRange === 'today' ? hourlySales : weeklySales}>
+              <BarChart data={liveSales}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" opacity={0.5} />
                 <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 'bold' }} dy={10} />
                 <YAxis 
@@ -145,13 +158,9 @@ export default function OwnerDashboard() {
         <Card className="flex flex-col">
           <h3 className="font-bold text-slate-800 mb-6">Live Order Monitor</h3>
           <div className="space-y-4 flex-1">
-            {[
-              { id: '89', name: 'Iced Americano × 2', time: 'Kitchen • 2 mins ago', status: 'PREPARING' },
-              { id: '88', name: 'Caramel Macchiato', time: 'Online • 5 mins ago', status: 'READY' },
-              { id: '87', name: 'Double Espresso', time: 'Takeaway • 12 mins ago', status: 'COMPLETED' },
-            ].map((order, i) => (
+            {orders.slice(0, 3).map((order) => (
               <div 
-                key={i} 
+                key={order.id}
                 className={cn(
                   "p-3 rounded-2xl border flex items-center justify-between",
                   order.status === 'PREPARING' ? "bg-blue-50 border-blue-100" : 
@@ -162,16 +171,16 @@ export default function OwnerDashboard() {
                   <div className={cn(
                     "w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs",
                     order.status === 'PREPARING' ? "bg-blue-200 text-blue-700" : "bg-slate-100 text-slate-700"
-                  )}>#{order.id}</div>
+                  )}>#{order.id.slice(-3)}</div>
                   <div>
-                    <p className="text-xs font-bold text-slate-900">{order.name}</p>
-                    <p className="text-[10px] text-slate-400">{order.time}</p>
+                    <p className="text-xs font-bold text-slate-900">{order.items.map(item => `${item.name} × ${item.quantity}`).join(', ')}</p>
+                    <p className="text-[10px] text-slate-400">{new Date(order.createdAt).toLocaleTimeString()}</p>
                   </div>
                 </div>
                 <span className={cn(
                   "text-[10px] font-bold px-2 py-1 rounded-full",
                   order.status === 'PREPARING' ? "text-blue-600 bg-white border border-blue-200" :
-                  order.status === 'READY' ? "text-emerald-600 bg-emerald-50" : "text-slate-500 bg-slate-50"
+                  order.status === 'COMPLETED' ? "text-emerald-600 bg-emerald-50" : "text-slate-500 bg-slate-50"
                 )}>
                   {order.status}
                 </span>
