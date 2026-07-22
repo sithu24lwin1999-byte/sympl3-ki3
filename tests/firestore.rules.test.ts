@@ -35,6 +35,7 @@ describeRules('Ki3 POS Firestore authorization', () => {
         }),
         setDoc(doc(db, 'shops/shop-a/orders/own-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'COMPLETED' }),
         setDoc(doc(db, 'shops/shop-a/orders/other-order'), { shopId: 'shop-a', employeeId: 'other', branchId: 'main', status: 'COMPLETED' }),
+        setDoc(doc(db, 'shops/shop-a/orders/pending-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'PENDING' }),
       ]);
     });
   });
@@ -67,6 +68,18 @@ describeRules('Ki3 POS Firestore authorization', () => {
       'permissions.create': true,
     }));
     await assertSucceeds(setDoc(doc(db, 'shops/shop-a/orders/new-order-allowed'), order));
+  });
+
+  it('enforces approve permission and valid order status progression', async () => {
+    const db = environment.authenticatedContext('employee-a').firestore();
+    const reference = doc(db, 'shops/shop-a/orders/pending-order');
+    const now = new Date().toISOString();
+    await assertFails(updateDoc(reference, { status: 'CONFIRMED', statusUpdatedAt: now, confirmedAt: now }));
+    await environment.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'shops/shop-a/employees/employee-a'), {
+      'permissions.approve': true,
+    }));
+    await assertSucceeds(updateDoc(reference, { status: 'CONFIRMED', statusUpdatedAt: now, confirmedAt: now }));
+    await assertFails(updateDoc(reference, { status: 'COMPLETED', statusUpdatedAt: now, completedAt: now }));
   });
 
   it('isolates held orders to the owner and the employee who created them', async () => {

@@ -42,6 +42,18 @@ service cloud.firestore {
       );
     }
     function canDiscount(shopId) { return isAdmin() || ownsShop(shopId) || employeePermission(shopId, 'discount'); }
+    function validOrderProgression() {
+      return (
+        (resource.data.status == 'DRAFT' && request.resource.data.status == 'PENDING')
+        || (resource.data.status == 'HELD' && request.resource.data.status == 'PENDING')
+        || (resource.data.status == 'PENDING' && request.resource.data.status == 'CONFIRMED')
+        || (resource.data.status == 'CONFIRMED' && request.resource.data.status == 'PREPARING')
+        || (resource.data.status == 'PREPARING' && request.resource.data.status == 'READY')
+        || (resource.data.status == 'READY' && request.resource.data.status == 'COMPLETED')
+      ) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'status', 'statusUpdatedAt', 'confirmedAt', 'preparingAt', 'readyAt', 'completedAt'
+      ]);
+    }
     function canRecordExpenses(shopId) {
       return isEmployee(shopId) && (
         !('permissions' in employee(shopId))
@@ -194,12 +206,15 @@ service cloud.firestore {
           && (ownsShop(shopId) || (request.resource.data.employeeId == request.auth.uid && employeePermission(shopId, 'create')))
           && (request.resource.data.discount == 0 || canDiscount(shopId));
         allow update: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
-          activeTenantMember(shopId)
-          && employeePermission(shopId, 'refund')
-          && employeeAtBranch(shopId, resource.data.branchId)
-          && resource.data.status == 'COMPLETED'
-          && request.resource.data.status in ['CANCELLED', 'REFUNDED']
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelReason', 'refundedAt', 'refundReason'])
+          activeTenantMember(shopId) && employeeAtBranch(shopId, resource.data.branchId) && (
+            (employeePermission(shopId, 'approve') && validOrderProgression())
+            || (
+              employeePermission(shopId, 'refund')
+              && resource.data.status == 'COMPLETED'
+              && request.resource.data.status in ['CANCELLED', 'REFUNDED']
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelReason', 'refundedAt', 'refundReason'])
+            )
+          )
         );
         allow delete: if isAdmin();
       }

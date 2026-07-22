@@ -1,5 +1,5 @@
 export type Role = 'ADMIN' | 'OWNER' | 'EMPLOYEE';
-export type OrderStatus = 'PENDING' | 'PREPARING' | 'HELD' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
+export type OrderStatus = 'DRAFT' | 'HELD' | 'PENDING' | 'CONFIRMED' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
 export type BusinessType = 'RESTAURANT' | 'RETAIL' | 'FASHION' | 'BAKERY' | 'PHOTOBOOTH' | 'SERVICE' | 'OTHER';
 export type PaymentKind = 'CASH' | 'BANK' | 'CARD' | 'KPAY' | 'WAVE' | 'AYAPAY' | 'CBPAY' | 'CREDIT' | 'SPLIT';
 export type OrderChannel = 'ONLINE' | 'IN_STORE';
@@ -189,7 +189,9 @@ export interface PaymentAllocation {
 
 export interface Order {
   id: string;
+  orderNumber?: string;
   shopId: string;
+  shopName?: string;
   branchId?: string;
   branchName?: string;
   customer: string;
@@ -201,6 +203,8 @@ export interface Order {
   deliveryCharge?: number;
   discount: number;
   total: number;
+  paidAmount?: number;
+  dueAmount?: number;
   paymentMethod: string;
   paymentKind?: PaymentKind;
   paymentAccountId?: string;
@@ -212,8 +216,14 @@ export interface Order {
   status: OrderStatus;
   type: 'ONLINE' | 'IN_STORE' | 'OFFLINE';
   employeeId?: string;
+  employeeName?: string;
   shiftId?: string;
   createdAt: string;
+  statusUpdatedAt?: string;
+  confirmedAt?: string;
+  preparingAt?: string;
+  readyAt?: string;
+  completedAt?: string;
   refundedAt?: string;
   refundReason?: string;
   cancelledAt?: string;
@@ -222,6 +232,7 @@ export interface Order {
 
 export interface HeldOrder {
   id: string;
+  orderNumber?: string;
   shopId: string;
   branchId: string;
   branchName: string;
