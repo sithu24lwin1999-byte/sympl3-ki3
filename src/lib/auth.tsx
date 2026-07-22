@@ -56,11 +56,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user, firebaseUser, loading,
     login: async (email, password) => {
       const credential = await signInWithEmailAndPassword(auth, email, password);
-      if (!credential.user.emailVerified) {
-        await sendEmailVerification(credential.user);
-        await signOut(auth);
-        throw new Error('Verify your email using the link we just sent, then sign in again.');
-      }
       setUser(await resolveUser(credential.user));
     },
     loginWithGoogle: async () => {
@@ -87,7 +82,9 @@ export async function createManagedUser(input: { email: string; password: string
   const secondary = initializeApp(firebaseConfig, `provision-${Date.now()}`);
   try {
     const credential = await createUserWithEmailAndPassword(getAuth(secondary), input.email, input.password);
-    await sendEmailVerification(credential.user);
+    // Managed accounts are trusted through their admin-created shop assignment.
+    // Verification email delivery is best-effort and must not orphan the account.
+    await sendEmailVerification(credential.user).catch(() => undefined);
     await setDoc(doc(db, 'users', credential.user.uid), {
       name: input.name, email: input.email.toLowerCase(), role: input.role, shopId: input.shopId, active: true,
       createdAt: new Date().toISOString(),
