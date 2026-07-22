@@ -176,6 +176,7 @@ export interface OrderItem {
   name: string;
   quantity: number;
   price: number;
+  cost?: number;
 }
 
 export interface PaymentAllocation {
@@ -204,6 +205,7 @@ export interface Order {
   discount: number;
   total: number;
   paidAmount?: number;
+  initialPaidAmount?: number;
   dueAmount?: number;
   paymentMethod: string;
   paymentKind?: PaymentKind;
@@ -297,6 +299,21 @@ export interface Expense {
   category: string;
   note: string;
   amount: number;
+  createdAt: string;
+}
+
+export interface DueCollection {
+  id: string;
+  shopId: string;
+  orderId: string;
+  orderNumber: string;
+  customer: string;
+  amount: number;
+  paymentKind: Exclude<PaymentKind, 'CREDIT' | 'SPLIT'>;
+  paymentMethod: string;
+  reference?: string;
+  actorId: string;
+  actorName: string;
   createdAt: string;
 }
 

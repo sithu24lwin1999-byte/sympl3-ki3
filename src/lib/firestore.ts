@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { addDoc, collection, collectionGroup, deleteDoc, doc, DocumentData, DocumentReference, getDocs, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import type { Order, OrderStatus, Product, StockMovement } from '@/types';
+import type { DueCollection, Order, OrderStatus, PaymentKind, Product, StockMovement } from '@/types';
 import { stockStatus } from './pos';
 
 export function useLiveCollection<T extends { id: string }>(path: string | null, sortField?: string) {
@@ -84,7 +84,7 @@ export const updateRecord = (path: string, id: string, value: DocumentData) => u
 export const deleteRecord = (path: string, id: string) => deleteDoc(doc(db, path, id));
 
 const SHOP_SUBCOLLECTIONS = [
-  'auditLogs', 'branches', 'customers', 'employees', 'expenses', 'orders',
+  'auditLogs', 'branches', 'customers', 'dueCollections', 'employees', 'expenses', 'orders',
   'heldOrders', 'paymentAccounts', 'products', 'purchases', 'settings', 'shifts',
   'stockMovements', 'suppliers',
 ] as const;
@@ -173,6 +173,36 @@ async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 
 
 export const refundOrder = (shopId: string, order: Order, reason = '') => reverseOrder(shopId, order, 'REFUNDED', reason);
 export const cancelOrder = (shopId: string, order: Order, reason = '') => reverseOrder(shopId, order, 'CANCELLED', reason);
+
+export async function collectOrderDue(shopId: string, orderId: string, input: {
+  amount: number;
+  paymentKind: Exclude<PaymentKind, 'CREDIT' | 'SPLIT'>;
+  paymentMethod: string;
+  reference?: string;
+  actorId: string;
+  actorName: string;
+}) {
+  const orderRef = doc(db, `shops/${shopId}/orders/${orderId}`);
+  const collectionRef = doc(collection(db, `shops/${shopId}/dueCollections`));
+  const createdAt = new Date().toISOString();
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(orderRef);
+    if (!snapshot.exists()) throw new Error('Order not found.');
+    const order = { id: snapshot.id, ...snapshot.data() } as Order;
+    if (order.status !== 'COMPLETED') throw new Error('Only completed orders can receive due payments.');
+    const due = order.dueAmount ?? (order.paymentKind === 'CREDIT' ? order.total : 0);
+    if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > due) throw new Error(`Collection must be between 1 and ${due}.`);
+    const paid = order.paidAmount ?? Math.max(0, order.total - due);
+    const record: Omit<DueCollection, 'id'> = {
+      shopId, orderId, orderNumber: order.orderNumber || order.id, customer: order.customer,
+      amount: input.amount, paymentKind: input.paymentKind, paymentMethod: input.paymentMethod,
+      reference: input.reference?.trim() || '', actorId: input.actorId, actorName: input.actorName, createdAt,
+    };
+    transaction.update(orderRef, { paidAmount: paid + input.amount, dueAmount: due - input.amount, statusUpdatedAt: createdAt });
+    transaction.set(collectionRef, record);
+  });
+  return collectionRef.id;
+}
 
 const nextStatuses: Partial<Record<OrderStatus, OrderStatus[]>> = {
   DRAFT: ['PENDING'], HELD: ['PENDING'], PENDING: ['CONFIRMED'], CONFIRMED: ['PREPARING'], PREPARING: ['READY'], READY: ['COMPLETED'],

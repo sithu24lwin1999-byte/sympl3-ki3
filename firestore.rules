@@ -198,7 +198,7 @@ service cloud.firestore {
 
       match /orders/{orderId} {
         allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
-          || (activeTenantMember(shopId) && (employeePermission(shopId, 'view') || employeePermission(shopId, 'viewOrders') || resource.data.employeeId == request.auth.uid));
+          || (activeTenantMember(shopId) && (employeePermission(shopId, 'view') || employeePermission(shopId, 'viewOrders') || employeePermission(shopId, 'accessReports') || resource.data.employeeId == request.auth.uid));
         allow create: if hasShopAccess(shopId)
           && request.resource.data.shopId == shopId
           && validMoney(request.resource.data.total)
@@ -273,12 +273,13 @@ service cloud.firestore {
       }
 
       match /purchases/{purchaseId} {
-        allow read, create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'accessReports'));
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
       }
 
       match /expenses/{expenseId} {
         allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
-          || (activeTenantMember(shopId) && employeeAtBranch(shopId, resource.data.branchId));
+          || (activeTenantMember(shopId) && (employeePermission(shopId, 'accessReports') || employeeAtBranch(shopId, resource.data.branchId)));
         allow create: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
           activeTenantMember(shopId)
           && canRecordExpenses(shopId)
@@ -288,6 +289,20 @@ service cloud.firestore {
           && validMoney(request.resource.data.amount)
         );
         allow update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
+      }
+
+      match /dueCollections/{collectionId} {
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && employeePermission(shopId, 'accessReports'));
+        allow create: if ownsShop(shopId) && subscriptionActive(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.orderId is string
+          && request.resource.data.paymentMethod is string
+          && validMoney(request.resource.data.amount)
+          && request.resource.data.amount > 0
+          && request.resource.data.createdAt is string;
+        allow update, delete: if false;
       }
 
       match /stockMovements/{movementId} {
