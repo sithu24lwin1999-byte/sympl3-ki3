@@ -30,13 +30,20 @@ export default function AdminShops() {
   const [formError, setFormError] = useState('');
 
   const handleCreateShop = async () => {
-    if (!newShop.name || !newShop.owner) return;
+    const cleaned = {
+      ...newShop,
+      name: newShop.name.trim(), owner: newShop.owner.trim(), ownerEmail: newShop.ownerEmail.trim().toLowerCase(), phone: newShop.phone.trim(),
+    };
+    if (!cleaned.name) { setFormError('Shop name is required.'); return; }
+    if (!cleaned.owner) { setFormError('Owner name is required.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned.ownerEmail)) { setFormError('Enter a valid owner email address.'); return; }
+    if (cleaned.password.length < 8) { setFormError('Temporary password must contain at least 8 characters.'); return; }
     setSaving(true); setFormError('');
     try {
       const shopRef = doc(collection(db, 'shops'));
-      const ownerId = await createManagedUser({ email: newShop.ownerEmail, password: newShop.password, name: newShop.owner, role: 'OWNER', shopId: shopRef.id });
-      const { password: _password, ...shopData } = newShop;
-      await setDoc(shopRef, { ...shopData, ownerId, ownerEmail: newShop.ownerEmail.toLowerCase(), status: 'ACTIVE', expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10), createdAt: new Date().toISOString() });
+      const ownerId = await createManagedUser({ email: cleaned.ownerEmail, password: cleaned.password, name: cleaned.owner, role: 'OWNER', shopId: shopRef.id });
+      const { password: _password, ...shopData } = cleaned;
+      await setDoc(shopRef, { ...shopData, ownerId, ownerEmail: cleaned.ownerEmail, status: 'ACTIVE', businessType: 'RETAIL', expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10), createdAt: new Date().toISOString() });
       setShowCreateModal(false);
       setNewShop({ name: '', owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
     } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to create shop.'); }
@@ -199,11 +206,11 @@ export default function AdminShops() {
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Owner Email</label>
-                <Input type="email" value={newShop.ownerEmail} onChange={(e) => setNewShop({...newShop, ownerEmail: e.target.value})} className="bg-white border-slate-200" required />
+                <Input type="email" value={newShop.ownerEmail} onChange={(e) => setNewShop({...newShop, ownerEmail: e.target.value})} className="bg-white border-slate-200" />
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Temporary Password</label>
-                <Input type="password" minLength={8} value={newShop.password} onChange={(e) => setNewShop({...newShop, password: e.target.value})} className="bg-white border-slate-200" required />
+                <Input type="password" minLength={8} value={newShop.password} onChange={(e) => setNewShop({...newShop, password: e.target.value})} className="bg-white border-slate-200" />
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Owner Name</label>

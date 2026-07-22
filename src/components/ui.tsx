@@ -14,7 +14,7 @@ export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTM
 );
 
 export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' }>(
-  ({ className, variant = 'primary', ...props }, ref) => {
+  ({ className, variant = 'primary', type = 'button', ...props }, ref) => {
     const variants = {
       primary: 'bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-500/20',
       secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100',
@@ -25,6 +25,7 @@ export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttrib
     return (
       <button
         ref={ref}
+        type={type}
         className={cn(
           "inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none",
           variants[variant],
