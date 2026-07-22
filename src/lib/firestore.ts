@@ -98,10 +98,14 @@ export async function completeSale(shopId: string, order: Omit<Order, 'id'>) {
   return orderRef.id;
 }
 
-export async function refundOrder(shopId: string, order: Order) {
+async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 'REFUNDED', reason: string) {
   await runTransaction(db, async transaction => {
     const orderRef = doc(db, `shops/${shopId}/orders/${order.id}`);
-    for (const item of order.items) {
+    const orderSnapshot = await transaction.get(orderRef);
+    if (!orderSnapshot.exists()) throw new Error('Order not found.');
+    const current = { id: orderSnapshot.id, ...orderSnapshot.data() } as Order;
+    if (current.status !== 'COMPLETED') throw new Error(`This order is already ${current.status.toLowerCase()}.`);
+    for (const item of current.items) {
       const productRef = doc(db, `shops/${shopId}/products/${item.productId}`);
       const snapshot = await transaction.get(productRef);
       if (snapshot.exists()) {
@@ -110,14 +114,20 @@ export async function refundOrder(shopId: string, order: Order) {
         const stock = product.stock + item.quantity;
         transaction.update(productRef, { stock, status: stockStatus(stock, product.minStock) });
         transaction.set(doc(collection(db, `shops/${shopId}/stockMovements`)), {
-          shopId, productId: item.productId, productName: item.name, type: 'REFUND', quantity: item.quantity,
-          balance: stock, note: `Refund ${order.id}`, createdAt: new Date().toISOString(),
+          shopId, productId: item.productId, productName: item.name, type: status === 'REFUNDED' ? 'REFUND' : 'ADJUSTMENT', quantity: item.quantity,
+          balance: stock, note: `${status === 'REFUNDED' ? 'Refund' : 'Cancellation'} ${order.id}`, createdAt: new Date().toISOString(),
         });
       }
     }
-    transaction.update(orderRef, { status: 'REFUNDED', refundedAt: new Date().toISOString() });
+    const now = new Date().toISOString();
+    transaction.update(orderRef, status === 'REFUNDED'
+      ? { status, refundedAt: now, refundReason: reason }
+      : { status, cancelledAt: now, cancelReason: reason });
   });
 }
+
+export const refundOrder = (shopId: string, order: Order, reason = '') => reverseOrder(shopId, order, 'REFUNDED', reason);
+export const cancelOrder = (shopId: string, order: Order, reason = '') => reverseOrder(shopId, order, 'CANCELLED', reason);
 
 export async function receivePurchase(shopId: string, input: {
   supplierId?: string; supplierName: string; productId: string; productName: string;

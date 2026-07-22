@@ -72,8 +72,7 @@ service cloud.firestore {
           && validMoney(request.resource.data.total)
           && request.resource.data.items is list
           && (request.resource.data.discount == 0 || canDiscount(shopId));
-        allow update: if isAdmin() || ownsShop(shopId) || (isEmployee(shopId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+        allow update: if isAdmin() || ownsShop(shopId);
         allow delete: if isAdmin();
       }
 

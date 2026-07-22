@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Input, Badge } from '@/components/ui';
-import { Save, Store, Receipt, WalletCards, Plus, Trash2, Loader2, CheckCircle2, Building2 } from 'lucide-react';
+import { Save, Store, Receipt, WalletCards, Plus, Trash2, Loader2, CheckCircle2, Building2, ImagePlus, X } from 'lucide-react';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/lib/auth';
@@ -19,7 +19,8 @@ export default function OwnerSettings() {
   const [activeTab, setActiveTab] = useState<'Profile' | 'Receipt' | 'Payments'>('Profile');
   const [settings, setSettings] = useState<ShopSettings>(defaults);
   const [profile, setProfile] = useState({ name: '', phone: '', address: '' });
-  const [account, setAccount] = useState({ kind: 'KPAY' as Exclude<PaymentKind, 'CASH'>, label: '', accountName: '', accountNumber: '', bankName: '' });
+  const [account, setAccount] = useState({ kind: 'KPAY' as Exclude<PaymentKind, 'CASH'>, label: '', accountName: '', accountNumber: '', bankName: '', qrCode: '' });
+  const [qrError, setQrError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -47,7 +48,26 @@ export default function OwnerSettings() {
     if (!shopId || !account.label.trim() || !account.accountNumber.trim()) return;
     await createRecord(`shops/${shopId}/paymentAccounts`, { ...account, shopId, active: true, createdAt: new Date().toISOString() });
     await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'PAYMENT_ACCOUNT_CREATED', detail: account.label, createdAt: new Date().toISOString() });
-    setAccount({ kind: 'KPAY', label: '', accountName: '', accountNumber: '', bankName: '' });
+    setAccount({ kind: 'KPAY', label: '', accountName: '', accountNumber: '', bankName: '', qrCode: '' });
+  };
+
+  const chooseQr = async (file?: File) => {
+    if (!file) return;
+    setQrError('');
+    try {
+      const qrCode = await prepareQrCode(file);
+      setAccount(current => ({ ...current, qrCode }));
+    }
+    catch (issue) { setQrError(issue instanceof Error ? issue.message : 'Unable to read QR image.'); }
+  };
+
+  const updateAccountQr = async (item: PaymentAccount, file?: File) => {
+    if (!file || !shopId) return;
+    setQrError('');
+    try {
+      const qrCode = await prepareQrCode(file);
+      await updateDoc(doc(db, `shops/${shopId}/paymentAccounts/${item.id}`), { qrCode, updatedAt: new Date().toISOString() });
+    } catch (issue) { setQrError(issue instanceof Error ? issue.message : 'Unable to save QR image.'); }
   };
 
   return <DashboardLayout role="OWNER">
@@ -82,15 +102,20 @@ export default function OwnerSettings() {
         {activeTab === 'Payments' && <div className="space-y-5">
           <Card className="p-6"><div className="flex items-center gap-3 mb-4"><Building2 className="text-blue-600" /><div><h3 className="font-bold text-lg">KPay, Wave & Bank Accounts</h3><p className="text-sm text-slate-500">Employees see active account details when taking payment. This records payments; it does not transfer money automatically.</p></div></div>
             <div className="grid md:grid-cols-2 gap-3">
-              <select value={account.kind} onChange={e => setAccount({ ...account, kind: e.target.value as Exclude<PaymentKind, 'CASH'> })} className="h-12 rounded-2xl border border-slate-200 bg-white px-4"><option value="KPAY">KBZPay / KPay</option><option value="WAVE">Wave Money</option><option value="BANK">Bank Transfer</option></select>
+              <select value={account.kind} onChange={e => setAccount({ ...account, kind: e.target.value as Exclude<PaymentKind, 'CASH'>, qrCode: e.target.value === 'BANK' ? '' : account.qrCode })} className="h-12 rounded-2xl border border-slate-200 bg-white px-4"><option value="KPAY">KBZPay / KPay</option><option value="WAVE">Wave Money</option><option value="BANK">Bank Transfer</option></select>
               <Input placeholder="Display label (e.g. Main KPay)" value={account.label} onChange={e => setAccount({ ...account, label: e.target.value })} />
               <Input placeholder="Account holder name" value={account.accountName} onChange={e => setAccount({ ...account, accountName: e.target.value })} />
               <Input placeholder="Account / phone number" value={account.accountNumber} onChange={e => setAccount({ ...account, accountNumber: e.target.value })} />
               {account.kind === 'BANK' && <Input placeholder="Bank name" value={account.bankName} onChange={e => setAccount({ ...account, bankName: e.target.value })} />}
+              {account.kind !== 'BANK' && <div className="rounded-2xl border border-dashed border-blue-300 bg-blue-50 p-3">
+                <label className="flex cursor-pointer items-center justify-center gap-2 text-sm font-bold text-blue-700"><ImagePlus className="h-5 w-5" />{account.qrCode ? 'Change QR Code' : 'Upload QR Code'}<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void chooseQr(event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>
+                {account.qrCode && <div className="relative mx-auto mt-3 w-fit"><img src={account.qrCode} alt="Payment QR preview" className="h-36 w-36 rounded-xl border bg-white object-contain p-2" /><button aria-label="Remove QR" onClick={() => setAccount({ ...account, qrCode: '' })} className="absolute -right-2 -top-2 rounded-full bg-red-600 p-1 text-white"><X className="h-4 w-4" /></button></div>}
+              </div>}
               <Button onClick={addAccount} disabled={!account.label.trim() || !account.accountNumber.trim()} className="gap-2"><Plus className="w-4 h-4" />Add Payment Account</Button>
             </div>
+            {qrError && <p className="mt-3 text-sm font-medium text-red-600">{qrError}</p>}
           </Card>
-          <div className="grid md:grid-cols-2 gap-4">{accounts.map(item => <Card key={item.id} className="p-5"><div className="flex justify-between gap-3"><div><Badge>{item.kind}</Badge><h4 className="font-bold mt-2">{item.label}</h4><p className="text-sm text-slate-500">{item.bankName ? `${item.bankName} • ` : ''}{item.accountName}</p><p className="mt-2 font-mono font-bold text-blue-700">{item.accountNumber}</p></div><button aria-label={`Delete ${item.label}`} onClick={() => window.confirm('Delete this payment account?') && deleteRecord(`shops/${shopId}/paymentAccounts`, item.id)} className="text-red-500"><Trash2 className="w-5 h-5" /></button></div></Card>)}</div>
+          <div className="grid md:grid-cols-2 gap-4">{accounts.map(item => <Card key={item.id} className="p-5"><div className="flex justify-between gap-3"><div className="min-w-0"><Badge>{item.kind}</Badge><h4 className="font-bold mt-2">{item.label}</h4><p className="text-sm text-slate-500">{item.bankName ? `${item.bankName} • ` : ''}{item.accountName}</p><p className="mt-2 font-mono font-bold text-blue-700">{item.accountNumber}</p>{item.qrCode && <img src={item.qrCode} alt={`${item.label} QR Code`} className="mt-3 h-32 w-32 rounded-xl border bg-white object-contain p-2" />}{item.kind !== 'BANK' && <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700"><ImagePlus className="h-4 w-4" />{item.qrCode ? 'Change QR' : 'Add QR'}<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void updateAccountQr(item, event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>}</div><button aria-label={`Delete ${item.label}`} onClick={() => window.confirm('Delete this payment account?') && deleteRecord(`shops/${shopId}/paymentAccounts`, item.id)} className="self-start text-red-500"><Trash2 className="w-5 h-5" /></button></div></Card>)}</div>
         </div>}
       </div>
     </div>
@@ -103,4 +128,29 @@ function Tab({ icon: Icon, label, active, onClick }: { icon: typeof Store; label
 
 function NumberField({ label, value, onChange }: { label: string; value: number; onChange(value: number): void }) {
   return <div><label className="text-sm font-bold">{label}</label><Input className="mt-2" type="number" min="0" value={value} onChange={e => onChange(Math.max(0, Number(e.target.value)))} /></div>;
+}
+
+function prepareQrCode(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) return Promise.reject(new Error('Choose a PNG, JPG or WebP image.'));
+  if (file.size > 8 * 1024 * 1024) return Promise.reject(new Error('QR image must be smaller than 8 MB.'));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Unable to read QR image.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('Invalid QR image.'));
+      image.onload = () => {
+        const scale = Math.min(1, 900 / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const value = canvas.toDataURL('image/webp', 0.9);
+        if (value.length > 700_000) reject(new Error('QR image is still too large. Crop it and try again.'));
+        else resolve(value);
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
 }

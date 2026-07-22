@@ -84,6 +84,7 @@ export interface PaymentAccount {
   accountName: string;
   accountNumber: string;
   bankName?: string;
+  qrCode?: string;
   active: boolean;
   createdAt: string;
 }
@@ -120,6 +121,9 @@ export interface Order {
   shiftId?: string;
   createdAt: string;
   refundedAt?: string;
+  refundReason?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
 }
 
 export interface Shift {

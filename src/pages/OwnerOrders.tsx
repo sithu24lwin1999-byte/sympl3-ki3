@@ -1,24 +1,39 @@
 import React, { useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge } from '@/components/ui';
-import { Search, Filter, Clock, CheckCircle2, ChefHat, XCircle } from 'lucide-react';
+import { Search, CheckCircle2, XCircle, RotateCcw, List } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
-import { refundOrder, updateRecord, useLiveCollection } from '@/lib/firestore';
-import type { Order, OrderStatus } from '@/types';
+import { cancelOrder, createRecord, refundOrder, useLiveCollection } from '@/lib/firestore';
+import type { Order } from '@/types';
 
 export default function OwnerOrders() {
   const { user } = useAuth();
   const ordersPath = user?.shopId ? `shops/${user.shopId}/orders` : null;
   const [filter, setFilter] = useState('ALL');
   const [search, setSearch] = useState('');
+  const [busyOrder, setBusyOrder] = useState('');
+  const [actionError, setActionError] = useState('');
   const { data: orders, loading, error } = useLiveCollection<Order>(ordersPath, 'createdAt');
 
   const filteredOrders = orders.filter(o => (filter === 'ALL' || o.status === filter) && o.id.toLowerCase().includes(search.toLowerCase()));
 
-  const handleUpdateStatus = async (id: string, newStatus: OrderStatus) => {
-    if (ordersPath) await updateRecord(ordersPath, id, { status: newStatus });
+  const reverse = async (order: Order, action: 'CANCELLED' | 'REFUNDED') => {
+    if (!user?.shopId || user.role !== 'OWNER') return;
+    const reason = window.prompt(`${action === 'REFUNDED' ? 'Refund' : 'Cancellation'} reason`, '')?.trim();
+    if (reason === undefined) return;
+    if (!window.confirm(`${action === 'REFUNDED' ? 'Refund' : 'Cancel'} order ${order.id} and restore its stock?`)) return;
+    setBusyOrder(order.id); setActionError('');
+    try {
+      if (action === 'REFUNDED') await refundOrder(user.shopId, order, reason);
+      else await cancelOrder(user.shopId, order, reason);
+      await createRecord(`shops/${user.shopId}/auditLogs`, {
+        shopId: user.shopId, actorId: user.id, actorName: user.name, action: `ORDER_${action}`,
+        detail: `${order.id} · ${reason || 'No reason provided'} · ${order.total} MMK`, createdAt: new Date().toISOString(),
+      }).catch(() => undefined);
+    } catch (issue) { setActionError(issue instanceof Error ? issue.message : `Unable to ${action.toLowerCase()} order.`); }
+    finally { setBusyOrder(''); }
   };
 
   return (
@@ -31,19 +46,15 @@ export default function OwnerOrders() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <StatusCard title="Pending" count={orders.filter(o => o.status === 'PENDING').length} icon={Clock} color="text-amber-600" bg="bg-amber-50" border="border-amber-100" onClick={() => setFilter('PENDING')} active={filter === 'PENDING'} />
-        <StatusCard title="Preparing" count={orders.filter(o => o.status === 'PREPARING').length} icon={ChefHat} color="text-blue-600" bg="bg-blue-50" border="border-blue-100" onClick={() => setFilter('PREPARING')} active={filter === 'PREPARING'} />
-        <StatusCard title="Completed (Today)" count={orders.filter(o => o.status === 'COMPLETED').length} icon={CheckCircle2} color="text-emerald-600" bg="bg-emerald-50" border="border-emerald-100" onClick={() => setFilter('COMPLETED')} active={filter === 'COMPLETED'} />
+        <StatusCard title="All Orders" count={orders.length} icon={List} color="text-blue-600" bg="bg-blue-50" border="border-blue-100" onClick={() => setFilter('ALL')} active={filter === 'ALL'} />
+        <StatusCard title="Completed" count={orders.filter(o => o.status === 'COMPLETED').length} icon={CheckCircle2} color="text-emerald-600" bg="bg-emerald-50" border="border-emerald-100" onClick={() => setFilter('COMPLETED')} active={filter === 'COMPLETED'} />
         <StatusCard title="Cancelled" count={orders.filter(o => o.status === 'CANCELLED').length} icon={XCircle} color="text-red-600" bg="bg-red-50" border="border-red-100" onClick={() => setFilter('CANCELLED')} active={filter === 'CANCELLED'} />
+        <StatusCard title="Refunded" count={orders.filter(o => o.status === 'REFUNDED').length} icon={RotateCcw} color="text-purple-600" bg="bg-purple-50" border="border-purple-100" onClick={() => setFilter('REFUNDED')} active={filter === 'REFUNDED'} />
       </div>
 
       <Card className="p-0 overflow-hidden flex flex-col bg-slate-50 border-none shadow-none">
         <div className="flex items-center justify-between mb-4 px-2">
-          <div className="flex items-center gap-2">
-             <Button variant={filter === 'ALL' ? 'primary' : 'outline'} className={cn("h-9 px-4 text-xs rounded-full", filter !== 'ALL' && "bg-white border-slate-200 text-slate-600")} onClick={() => setFilter('ALL')}>
-               All Orders
-             </Button>
-          </div>
+          <p className="text-sm font-bold text-slate-600">{filter === 'ALL' ? 'All Orders' : `${filter.charAt(0)}${filter.slice(1).toLowerCase()} Orders`}</p>
           <div className="flex items-center bg-white border border-slate-200 rounded-full px-4 py-2 w-72 shadow-sm">
             <Search className="w-4 h-4 text-slate-400 mr-2" />
             <input 
@@ -67,9 +78,8 @@ export default function OwnerOrders() {
                 key={order.id}
                 className={cn(
                   "bg-white rounded-3xl p-5 border shadow-sm flex flex-col",
-                  order.status === 'PENDING' ? "border-amber-200" :
-                  order.status === 'PREPARING' ? "border-blue-200" :
-                  order.status === 'COMPLETED' ? "border-slate-100 opacity-60" : "border-red-100 opacity-60"
+                  order.status === 'COMPLETED' ? "border-emerald-100" :
+                  order.status === 'REFUNDED' ? "border-purple-100 opacity-70" : "border-red-100 opacity-70"
                 )}
               >
                 <div className="flex justify-between items-start mb-4">
@@ -80,9 +90,8 @@ export default function OwnerOrders() {
                   <Badge 
                     className={cn(
                       "text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider",
-                      order.status === 'PENDING' ? "bg-amber-100 text-amber-700" :
-                      order.status === 'PREPARING' ? "bg-blue-100 text-blue-700" :
-                      order.status === 'COMPLETED' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                      order.status === 'COMPLETED' ? "bg-emerald-50 text-emerald-600" :
+                      order.status === 'REFUNDED' ? "bg-purple-50 text-purple-600" : "bg-red-50 text-red-600"
                     )}
                   >
                     {order.status}
@@ -92,19 +101,14 @@ export default function OwnerOrders() {
                 <div className="flex-1 mb-4 border-t border-b border-slate-50 py-3">
                   <p className="text-sm font-bold text-slate-700 mb-1">Customer: <span className="font-medium text-slate-500">{order.customer}</span></p>
                   <p className="text-sm font-bold text-slate-700">Items: <span className="font-medium text-slate-500">{order.items.map(item => `${item.name} × ${item.quantity}`).join(', ')}</span></p>
+                  {(order.cancelReason || order.refundReason) && <p className="mt-2 text-xs font-bold text-slate-500">Reason: {order.cancelReason || order.refundReason}</p>}
                 </div>
 
                 <div className="flex justify-between items-center">
                   <p className="font-black text-[#2563EB] text-lg">{formatCurrency(order.total)}</p>
                   
-                  {order.status === 'PENDING' && (
-                    <Button onClick={() => handleUpdateStatus(order.id, 'PREPARING')} className="h-8 px-4 text-xs bg-amber-500 hover:bg-amber-600 shadow-amber-500/20 text-white rounded-full">Accept</Button>
-                  )}
-                  {order.status === 'PREPARING' && (
-                    <Button onClick={() => handleUpdateStatus(order.id, 'COMPLETED')} className="h-8 px-4 text-xs bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20 text-white rounded-full">Complete</Button>
-                  )}
                   {order.status === 'COMPLETED' && user?.role === 'OWNER' && (
-                    <Button variant="outline" onClick={() => user?.shopId && window.confirm('Refund this order and restore stock?') && refundOrder(user.shopId, order)} className="h-8 px-4 text-xs text-red-600 rounded-full">Refund</Button>
+                    <div className="flex gap-2"><Button disabled={busyOrder === order.id} variant="outline" onClick={() => reverse(order, 'CANCELLED')} className="h-8 px-3 text-xs text-red-600 rounded-full">Cancel</Button><Button disabled={busyOrder === order.id} variant="outline" onClick={() => reverse(order, 'REFUNDED')} className="h-8 px-3 text-xs text-purple-600 rounded-full">Refund</Button></div>
                   )}
                 </div>
               </motion.div>
@@ -113,6 +117,7 @@ export default function OwnerOrders() {
         </div>
       </Card>
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {actionError && <p className="mt-4 text-sm font-medium text-red-600">{actionError}</p>}
     </DashboardLayout>
   );
 }
