@@ -36,6 +36,8 @@ describeRules('Ki3 POS Firestore authorization', () => {
         setDoc(doc(db, 'shops/shop-a/orders/own-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'COMPLETED' }),
         setDoc(doc(db, 'shops/shop-a/orders/other-order'), { shopId: 'shop-a', employeeId: 'other', branchId: 'main', status: 'COMPLETED' }),
         setDoc(doc(db, 'shops/shop-a/orders/pending-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'PENDING' }),
+        setDoc(doc(db, 'shops/shop-a/purchases/purchase-a'), { shopId: 'shop-a', total: 100, createdAt: new Date().toISOString() }),
+        setDoc(doc(db, 'shops/shop-a/dueCollections/due-a'), { shopId: 'shop-a', orderId: 'own-order', amount: 50, paymentMethod: 'Cash', actorId: 'owner-a', createdAt: new Date().toISOString() }),
       ]);
     });
   });
@@ -138,6 +140,20 @@ describeRules('Ki3 POS Firestore authorization', () => {
   it('prevents owners from changing root authorization records', async () => {
     const db = environment.authenticatedContext('owner-a').firestore();
     await assertFails(setDoc(doc(db, 'users/attacker'), { role: 'OWNER', shopId: 'shop-b', active: true }));
+  });
+
+  it('enforces report access and reserves due collection writes for owners', async () => {
+    const employeeDb = environment.authenticatedContext('employee-a').firestore();
+    await assertFails(getDoc(doc(employeeDb, 'shops/shop-a/purchases/purchase-a')));
+    await assertFails(getDoc(doc(employeeDb, 'shops/shop-a/dueCollections/due-a')));
+    await environment.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'shops/shop-a/employees/employee-a'), {
+      'permissions.accessReports': true,
+    }));
+    await assertSucceeds(getDoc(doc(employeeDb, 'shops/shop-a/purchases/purchase-a')));
+    await assertSucceeds(getDoc(doc(employeeDb, 'shops/shop-a/dueCollections/due-a')));
+    await assertFails(setDoc(doc(employeeDb, 'shops/shop-a/dueCollections/blocked'), { shopId: 'shop-a', orderId: 'own-order', amount: 10, paymentMethod: 'Cash', actorId: 'employee-a', createdAt: new Date().toISOString() }));
+    const ownerDb = environment.authenticatedContext('owner-a').firestore();
+    await assertSucceeds(setDoc(doc(ownerDb, 'shops/shop-a/dueCollections/allowed'), { shopId: 'shop-a', orderId: 'own-order', amount: 10, paymentMethod: 'Cash', actorId: 'owner-a', createdAt: new Date().toISOString() }));
   });
 
   it('grants platform-wide reads only to an admin custom claim', async () => {

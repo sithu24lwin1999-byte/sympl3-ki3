@@ -132,7 +132,7 @@ export default function POSScreen() {
     setBusy(true); setCheckoutError('');
     try {
       const heldAt = new Date().toISOString();
-      const held = { orderNumber: `HOLD-${Date.now().toString().slice(-8)}`, shopId, branchId, branchName, employeeId: user.id, employeeName: user.name, type: orderType, customer: customer || 'Walk-in', customerPhone, discountPercent, deliveryCharge: Math.max(0, deliveryCharge), notes: notes.trim(), items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: salePrice(item.product) })), heldAt };
+      const held = { orderNumber: `HOLD-${Date.now().toString().slice(-8)}`, shopId, branchId, branchName, employeeId: user.id, employeeName: user.name, type: orderType, customer: customer || 'Walk-in', customerPhone, discountPercent, deliveryCharge: Math.max(0, deliveryCharge), notes: notes.trim(), items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: salePrice(item.product), cost: item.product.cost })), heldAt };
       if (resumedHeldId) await setRecord(`shops/${shopId}/heldOrders`, resumedHeldId, held);
       else await createRecord(`shops/${shopId}/heldOrders`, held);
       await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'ORDER_HELD', detail: `${branchName} · ${cart.length} items`, createdAt: new Date().toISOString() });
@@ -162,11 +162,11 @@ export default function POSScreen() {
     const paidAmount = payments.filter(payment => payment.kind !== 'CREDIT').reduce((sum, payment) => sum + payment.amount, 0);
     const order: Omit<Order, 'id'> = {
       orderNumber: `${settings?.invoicePrefix || 'KI3'}-${Date.now().toString().slice(-10)}`, shopId, shopName: shop?.name || 'Shop', branchId, branchName, customer: customer || 'Walk-in', customerPhone,
-      items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: salePrice(item.product) })),
+      items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: salePrice(item.product), cost: item.product.cost })),
       subtotal, tax: calculated.tax, serviceCharge, deliveryCharge: Math.max(0, deliveryCharge), discount: calculated.discount, total: grandTotal,
       paymentMethod: paymentKind === 'SPLIT' ? 'Split payment' : payments[0].label, paymentKind, payments,
       paymentAccountId: selectedPayment?.id || '', paymentAccountLabel: selectedPayment?.label || '', paymentAccountNumber: selectedPayment?.accountNumber || '', paymentReference: paymentReference.trim(),
-      paidAmount, dueAmount: Math.max(0, grandTotal - paidAmount), notes: notes.trim(), status: 'COMPLETED', type: orderType, employeeId: user?.id, employeeName: user?.name || 'Employee', shiftId: activeShift.id, createdAt, completedAt: createdAt, statusUpdatedAt: createdAt,
+      paidAmount, initialPaidAmount: paidAmount, dueAmount: Math.max(0, grandTotal - paidAmount), notes: notes.trim(), status: 'COMPLETED', type: orderType, employeeId: user?.id, employeeName: user?.name || 'Employee', shiftId: activeShift.id, createdAt, completedAt: createdAt, statusUpdatedAt: createdAt,
     };
     try {
       let id = `OFF-${Date.now()}`;

@@ -28,6 +28,7 @@ const ownerNav: SidebarItem[] = [
   { icon: Users, label: 'Employees', path: '/owner/employees' },
   { icon: ClipboardList, label: 'Business Operations', path: '/owner/operations' },
   { icon: Building2, label: 'Branches & Finance', path: '/owner/branches' },
+  { icon: BarChart3, label: 'Accounting & Reports', path: '/owner/reports' },
   { icon: Settings, label: 'Settings', path: '/owner/settings' },
 ];
 
@@ -40,6 +41,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
     ...(user?.permissions?.create ? [{ icon: ShoppingCart, label: 'Point of Sale', path: '/pos' }] : []),
     ...(user?.permissions?.view ? [{ icon: Receipt, label: 'My Orders', path: '/owner/orders' }] : []),
     ...(user?.permissions?.recordExpenses ? [{ icon: ClipboardList, label: 'Record Expense', path: '/expenses' }] : []),
+    ...(user?.permissions?.accessReports ? [{ icon: BarChart3, label: 'Reports', path: '/owner/reports' }] : []),
   ];
   const navItems = effectiveRole === 'ADMIN' ? adminNav : effectiveRole === 'EMPLOYEE' ? employeeNav : ownerNav;
   const shop = useLiveDocument<Shop>(user?.shopId ? `shops/${user.shopId}` : null);

@@ -18,7 +18,9 @@
 
 @media print {
   body * { visibility: hidden !important; }
-  .receipt, .receipt * { visibility: visible !important; }
+  .receipt, .receipt *, .report-print, .report-print * { visibility: visible !important; }
   .receipt { position: absolute !important; inset: 0 auto auto 0 !important; width: 80mm !important; box-shadow: none !important; border-radius: 0 !important; }
   .receipt button { display: none !important; }
+  .report-print { position: absolute !important; inset: 0 !important; width: 100% !important; background: white !important; }
+  .report-print .no-print { display: none !important; }
 }
