@@ -39,11 +39,13 @@ export default function OwnerDashboard() {
   const costOfGoods = monthOrders.reduce((sum, order) => sum + productCost(order), 0);
   const netProfit = grossIncome - costOfGoods - expenseTotal;
   const onlineSales = todayCompleted.filter(order => order.type === 'ONLINE').reduce((sum, order) => sum + order.total, 0);
-  const storeSales = todayCompleted.filter(order => order.type === 'OFFLINE').reduce((sum, order) => sum + order.total, 0);
+  const storeSales = todayCompleted.filter(order => order.type === 'IN_STORE' || order.type === 'OFFLINE').reduce((sum, order) => sum + order.total, 0);
   const stockProducts = products.filter(product => product.itemType !== 'SERVICE' && product.trackStock !== false);
   const outOfStock = stockProducts.filter(product => product.stock <= 0).length;
   const lowStock = stockProducts.filter(product => product.stock > 0 && product.stock <= product.minStock).length;
-  const outstandingCredit = customers.reduce((sum, customer) => sum + (customer.outstandingCredit || 0), 0);
+  const recordedCustomerCredit = customers.reduce((sum, customer) => sum + (customer.outstandingCredit || 0), 0);
+  const orderCredit = orders.filter(completed).reduce((sum, order) => sum + (order.payments?.filter(payment => payment.kind === 'CREDIT').reduce((paymentSum, payment) => paymentSum + payment.amount, 0) || (order.paymentKind === 'CREDIT' ? order.total : 0)), 0);
+  const outstandingCredit = recordedCustomerCredit + orderCredit;
   const loading = shopLoading || ordersLoading || productsLoading || expensesLoading || customersLoading;
   const error = shopError ? `Shop: ${shopError}` : ordersError ? `Orders: ${ordersError}` : productsError ? `Products: ${productsError}` : expensesError ? `Expenses: ${expensesError}` : customersError ? `Customers: ${customersError}` : null;
 
@@ -55,14 +57,14 @@ export default function OwnerDashboard() {
     const monthly = Array.from({ length: 12 }, (_, index) => { const date = new Date(); date.setMonth(date.getMonth() - (11-index)); const key = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`; return { label: date.toLocaleDateString('en-US',{month:'short'}), sales: validOrders.filter(order => localDateKey(order.createdAt).startsWith(key)).reduce((sum, order) => sum + order.total, 0) }; });
     const cutoff = dateOffset(-29);
     const recent = validOrders.filter(order => localDateKey(order.createdAt) >= cutoff);
-    const channel = ['ONLINE','OFFLINE'].map(type => ({ name: type === 'ONLINE' ? 'Online' : 'In-store', value: recent.filter(order => order.type === type).reduce((sum,order)=>sum+order.total,0) }));
+    const channel = [{ name: 'Online', value: recent.filter(order => order.type === 'ONLINE').reduce((sum,order)=>sum+order.total,0) }, { name: 'In-store', value: recent.filter(order => order.type === 'IN_STORE' || order.type === 'OFFLINE').reduce((sum,order)=>sum+order.total,0) }];
     const productMap = new Map<string,{name:string;quantity:number;sales:number}>();
     recent.forEach(order => order.items.forEach(item => { const current=productMap.get(item.productId)||{name:item.name,quantity:0,sales:0}; current.quantity+=item.quantity; current.sales+=item.quantity*item.price; productMap.set(item.productId,current); }));
     const topProducts = [...productMap.values()].sort((a,b)=>b.quantity-a.quantity).slice(0,7);
     const categoryMap = new Map<string,number>();
     recent.forEach(order => order.items.forEach(item => { const category=products.find(product=>product.id===item.productId)?.category||'Uncategorized'; categoryMap.set(category,(categoryMap.get(category)||0)+item.quantity*item.price); }));
     const topCategories = [...categoryMap].map(([name,sales])=>({name,sales})).sort((a,b)=>b.sales-a.sales).slice(0,7);
-    const paymentMap = new Map<string,number>(); recent.forEach(order=>{const method=order.paymentKind||order.paymentMethod||'Unknown';paymentMap.set(method,(paymentMap.get(method)||0)+order.total)});
+    const paymentMap = new Map<string,number>(); recent.forEach(order=>{if(order.payments?.length) order.payments.forEach(payment=>paymentMap.set(payment.label,(paymentMap.get(payment.label)||0)+payment.amount)); else {const method=order.paymentKind||order.paymentMethod||'Unknown';paymentMap.set(method,(paymentMap.get(method)||0)+order.total)}});
     const payments = [...paymentMap].map(([name,value])=>({name,value}));
     return { salesByHour, daily, weekly, monthly, channel, topProducts, topCategories, payments };
   }, [orders, products, today]);

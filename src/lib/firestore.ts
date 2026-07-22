@@ -85,7 +85,7 @@ export const deleteRecord = (path: string, id: string) => deleteDoc(doc(db, path
 
 const SHOP_SUBCOLLECTIONS = [
   'auditLogs', 'branches', 'customers', 'employees', 'expenses', 'orders',
-  'paymentAccounts', 'products', 'purchases', 'settings', 'shifts',
+  'heldOrders', 'paymentAccounts', 'products', 'purchases', 'settings', 'shifts',
   'stockMovements', 'suppliers',
 ] as const;
 
@@ -111,13 +111,20 @@ export async function deleteShopCascade(shopId: string) {
 export async function completeSale(shopId: string, order: Omit<Order, 'id'>) {
   const orderRef = doc(collection(db, `shops/${shopId}/orders`));
   await runTransaction(db, async transaction => {
-    for (const item of order.items) {
-      const productRef = doc(db, `shops/${shopId}/products/${item.productId}`);
-      const snapshot = await transaction.get(productRef);
+    const productRefs = order.items.map(item => doc(db, `shops/${shopId}/products/${item.productId}`));
+    const settingsRef = doc(db, `shops/${shopId}/settings/general`);
+    const [settingsSnapshot, ...productSnapshots] = await Promise.all([
+      transaction.get(settingsRef),
+      ...productRefs.map(reference => transaction.get(reference)),
+    ]);
+    const allowNegativeStock = settingsSnapshot.exists() && settingsSnapshot.data().allowNegativeStock === true;
+    for (const [index, item] of order.items.entries()) {
+      const productRef = productRefs[index];
+      const snapshot = productSnapshots[index];
       if (!snapshot.exists()) throw new Error(`${item.name} is no longer available.`);
       const product = snapshot.data() as Product;
       if (product.itemType === 'SERVICE' || product.trackStock === false) continue;
-      if (product.stock < item.quantity) throw new Error(`Not enough stock for ${item.name}.`);
+      if (!allowNegativeStock && product.stock < item.quantity) throw new Error(`Not enough stock for ${item.name}. Available: ${product.stock}.`);
       const stock = product.stock - item.quantity;
       const movementRef = doc(collection(db, `shops/${shopId}/stockMovements`));
       transaction.update(productRef, { stock, status: stockStatus(stock, product.minStock), lastOrderId: orderRef.id, lastMovementId: movementRef.id });

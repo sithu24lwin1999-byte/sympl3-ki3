@@ -30,11 +30,13 @@ export default function OwnerOperations() {
   const [purchase, setPurchase] = useState({ supplierId: '', productId: '', quantity: '1', unitCost: '' });
   const [expense, setExpense] = useState({ branchId: 'main', type: 'OPERATING' as 'OPERATING' | 'OWNER_WITHDRAWAL', category: 'General', note: '', amount: '' });
   const paidOrders = orders.filter(order => order.status === 'COMPLETED');
-  const filteredPayments = paidOrders.filter(order => paymentFilter === 'ALL' || orderPaymentKind(order) === paymentFilter);
-  const paymentTotals = useMemo(() => paidOrders.reduce<Record<string, number>>((totals, order) => {
-    const key = orderPaymentKind(order);
-    totals[key] = (totals[key] || 0) + order.total; return totals;
-  }, {}), [paidOrders]);
+  const paymentEntries = useMemo(() => paidOrders.flatMap(order => order.payments?.length
+    ? order.payments.map(payment => ({ order, kind: payment.kind, label: payment.label, accountNumber: payment.accountNumber || '', reference: payment.reference || order.paymentReference || '', amount: payment.amount }))
+    : [{ order, kind: orderPaymentKind(order), label: order.paymentMethod, accountNumber: order.paymentAccountNumber || '', reference: order.paymentReference || '', amount: order.total }]), [paidOrders]);
+  const filteredPayments = paymentEntries.filter(entry => paymentFilter === 'ALL' || entry.kind === paymentFilter);
+  const paymentTotals = useMemo(() => paymentEntries.reduce<Record<string, number>>((totals, entry) => {
+    totals[entry.kind] = (totals[entry.kind] || 0) + entry.amount; return totals;
+  }, {}), [paymentEntries]);
 
   const audit = (action: string, detail: string) => createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action, detail, createdAt: new Date().toISOString() });
   const addSupplier = async () => {
@@ -68,8 +70,8 @@ export default function OwnerOperations() {
     </div>
 
     {tab === 'PAYMENTS' && <>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">{(['CASH', 'KPAY', 'WAVE', 'BANK'] as PaymentKind[]).map(kind => <button key={kind} onClick={() => setPaymentFilter(kind)} className={cn('text-left rounded-2xl border bg-white p-4', paymentFilter === kind && 'ring-2 ring-blue-500')}><p className="text-xs font-bold text-slate-400">{kind}</p><p className="text-xl font-black mt-1">{formatCurrency(paymentTotals[kind] || 0)}</p></button>)}</div>
-      <Card className="p-0 overflow-hidden"><div className="p-4 flex justify-between"><h3 className="font-bold">Payment Transactions</h3><Button variant="outline" onClick={() => setPaymentFilter('ALL')} className="h-8">Show all</Button></div><DataTable headers={['Date', 'Order', 'Method / Account', 'Reference', 'Amount']} rows={filteredPayments.map(order => [new Date(order.createdAt).toLocaleString(), order.id, `${order.paymentMethod}${order.paymentAccountNumber ? ` • ${order.paymentAccountNumber}` : ''}`, order.paymentReference || '—', formatCurrency(order.total)])} /></Card>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">{(['CASH', 'BANK', 'CARD', 'KPAY', 'WAVE', 'AYAPAY', 'CBPAY', 'CREDIT'] as PaymentKind[]).map(kind => <button key={kind} onClick={() => setPaymentFilter(kind)} className={cn('text-left rounded-2xl border bg-white p-4', paymentFilter === kind && 'ring-2 ring-blue-500')}><p className="text-xs font-bold text-slate-400">{kind}</p><p className="text-xl font-black mt-1">{formatCurrency(paymentTotals[kind] || 0)}</p></button>)}</div>
+      <Card className="p-0 overflow-hidden"><div className="p-4 flex justify-between"><h3 className="font-bold">Payment Transactions</h3><Button variant="outline" onClick={() => setPaymentFilter('ALL')} className="h-8">Show all</Button></div><DataTable headers={['Date', 'Order', 'Method / Account', 'Reference', 'Amount']} rows={filteredPayments.map(entry => [new Date(entry.order.createdAt).toLocaleString(), entry.order.id, `${entry.label}${entry.accountNumber ? ` • ${entry.accountNumber}` : ''}`, entry.reference || '—', formatCurrency(entry.amount)])} /></Card>
     </>}
 
     {tab === 'PURCHASES' && <div className="space-y-5">
