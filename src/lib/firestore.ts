@@ -59,9 +59,14 @@ export async function completeSale(shopId: string, order: Omit<Order, 'id'>) {
       const snapshot = await transaction.get(productRef);
       if (!snapshot.exists()) throw new Error(`${item.name} is no longer available.`);
       const product = snapshot.data() as Product;
+      if (product.itemType === 'SERVICE' || product.trackStock === false) continue;
       if (product.stock < item.quantity) throw new Error(`Not enough stock for ${item.name}.`);
       const stock = product.stock - item.quantity;
       transaction.update(productRef, { stock, status: stockStatus(stock, product.minStock) });
+      transaction.set(doc(collection(db, `shops/${shopId}/stockMovements`)), {
+        shopId, productId: item.productId, productName: item.name, type: 'SALE', quantity: -item.quantity,
+        balance: stock, note: `Order ${orderRef.id}`, createdAt: order.createdAt,
+      });
     }
     transaction.set(orderRef, order);
   });
@@ -76,10 +81,36 @@ export async function refundOrder(shopId: string, order: Order) {
       const snapshot = await transaction.get(productRef);
       if (snapshot.exists()) {
         const product = snapshot.data() as Product;
+        if (product.itemType === 'SERVICE' || product.trackStock === false) continue;
         const stock = product.stock + item.quantity;
         transaction.update(productRef, { stock, status: stockStatus(stock, product.minStock) });
+        transaction.set(doc(collection(db, `shops/${shopId}/stockMovements`)), {
+          shopId, productId: item.productId, productName: item.name, type: 'REFUND', quantity: item.quantity,
+          balance: stock, note: `Refund ${order.id}`, createdAt: new Date().toISOString(),
+        });
       }
     }
     transaction.update(orderRef, { status: 'REFUNDED', refundedAt: new Date().toISOString() });
   });
+}
+
+export async function receivePurchase(shopId: string, input: {
+  supplierId?: string; supplierName: string; productId: string; productName: string;
+  quantity: number; unitCost: number; createdAt: string;
+}) {
+  const purchaseRef = doc(collection(db, `shops/${shopId}/purchases`));
+  await runTransaction(db, async transaction => {
+    const productRef = doc(db, `shops/${shopId}/products/${input.productId}`);
+    const snapshot = await transaction.get(productRef);
+    if (!snapshot.exists()) throw new Error('Product not found.');
+    const product = snapshot.data() as Product;
+    const stock = product.stock + input.quantity;
+    transaction.update(productRef, { stock, cost: input.unitCost, status: stockStatus(stock, product.minStock), updatedAt: input.createdAt });
+    transaction.set(purchaseRef, { ...input, shopId, total: input.quantity * input.unitCost });
+    transaction.set(doc(collection(db, `shops/${shopId}/stockMovements`)), {
+      shopId, productId: input.productId, productName: input.productName, type: 'PURCHASE', quantity: input.quantity,
+      balance: stock, note: input.supplierName, createdAt: input.createdAt,
+    });
+  });
+  return purchaseRef.id;
 }

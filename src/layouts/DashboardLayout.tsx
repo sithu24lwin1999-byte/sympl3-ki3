@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt } from 'lucide-react';
+import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
+import { useLiveCollection, useLiveDocument } from '@/lib/firestore';
+import type { Product, Shop } from '@/types';
 
 interface SidebarItem {
   icon: React.ElementType;
@@ -23,6 +25,7 @@ const ownerNav: SidebarItem[] = [
   { icon: Receipt, label: 'Order Monitor', path: '/owner/orders' },
   { icon: Store, label: 'Inventory', path: '/owner/inventory' },
   { icon: Users, label: 'Employees', path: '/owner/employees' },
+  { icon: ClipboardList, label: 'Business Operations', path: '/owner/operations' },
   { icon: Settings, label: 'Settings', path: '/owner/settings' },
 ];
 
@@ -31,6 +34,9 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   const navigate = useNavigate();
   const navItems = role === 'ADMIN' ? adminNav : ownerNav;
   const { user, logout } = useAuth();
+  const shop = useLiveDocument<Shop>(user?.shopId ? `shops/${user.shopId}` : null);
+  const { data: products } = useLiveCollection<Product>(user?.shopId ? `shops/${user.shopId}/products` : null);
+  const lowStockCount = products.filter(product => product.itemType !== 'SERVICE' && product.trackStock !== false && product.stock <= product.minStock).length;
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -99,7 +105,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
       <main className="flex-1 flex flex-col min-w-0">
         <header className="min-h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
           <div className="hidden lg:block">
-            <h2 className="text-lg font-bold">The Coffee Lab - Mandalay</h2>
+            <h2 className="text-lg font-bold">{role === 'ADMIN' ? 'KI3 POS Administration' : shop?.name || 'My Shop'}</h2>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
           </div>
           
@@ -120,13 +126,13 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                 <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 cursor-pointer hover:bg-blue-100">
                   <Bell className="w-5 h-5" />
                 </button>
-                <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+                {lowStockCount > 0 && <span className="absolute top-0 right-0 min-w-4 h-4 px-1 bg-red-500 border border-white rounded-full text-[9px] text-white grid place-items-center">{lowStockCount}</span>}
                 {showNotifications && (
                   <div className="absolute right-0 top-12 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl z-50">
                     <p className="px-2 py-1 text-sm font-bold">Notifications</p>
                     <button onClick={() => { navigate(role === 'ADMIN' ? '/admin/shops' : '/owner/inventory'); setShowNotifications(false); }} className="w-full rounded-xl p-3 text-left hover:bg-slate-50">
-                      <p className="text-xs font-bold text-slate-800">Action required</p>
-                      <p className="mt-1 text-xs text-slate-500">Review expiring plans and low-stock products.</p>
+                      <p className="text-xs font-bold text-slate-800">{lowStockCount ? `${lowStockCount} low-stock item${lowStockCount === 1 ? '' : 's'}` : 'All stock levels look good'}</p>
+                      <p className="mt-1 text-xs text-slate-500">{role === 'ADMIN' ? 'Review tenant plans and shop activity.' : 'Open inventory to review stock levels.'}</p>
                     </button>
                   </div>
                 )}

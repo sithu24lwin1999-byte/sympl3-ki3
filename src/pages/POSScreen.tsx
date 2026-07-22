@@ -5,8 +5,9 @@ import { formatCurrency, cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
 import { completeSale, createRecord, setRecord, updateRecord, useLiveCollection, useLiveDocument } from '@/lib/firestore';
-import type { Order, Product, Shift, Shop } from '@/types';
+import type { Employee, Order, PaymentAccount, PaymentKind, Product, Shift, Shop, ShopSettings } from '@/types';
 import { calculateTotals } from '@/lib/pos';
+import { increment } from 'firebase/firestore';
 
 export default function POSScreen() {
   const { user, logout } = useAuth();
@@ -14,13 +15,20 @@ export default function POSScreen() {
   const shop = useLiveDocument<Shop>(shopId ? `shops/${shopId}` : null);
   const { data: products, error: productsError } = useLiveCollection<Product>(shopId ? `shops/${shopId}/products` : null);
   const { data: shifts } = useLiveCollection<Shift>(shopId ? `shops/${shopId}/shifts` : null, 'openedAt');
+  const { data: orders } = useLiveCollection<Order>(shopId ? `shops/${shopId}/orders` : null, 'createdAt');
+  const { data: paymentAccounts } = useLiveCollection<PaymentAccount>(shopId ? `shops/${shopId}/paymentAccounts` : null, 'createdAt');
+  const settings = useLiveDocument<ShopSettings>(shopId ? `shops/${shopId}/settings/general` : null);
+  const employee = useLiveDocument<Employee>(user?.role === 'EMPLOYEE' && shopId ? `shops/${shopId}/employees/${user.id}` : null);
+  const canDiscount = user?.role === 'OWNER' || employee?.permissions?.discount === true;
   const activeShift = shifts.find(shift => shift.employeeId === user?.id && shift.status === 'OPEN');
   const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState<{product: Product, quantity: number}[]>([]);
   const [search, setSearch] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'KBZ Pay' | 'Wave Pay'>('Cash');
+  const [paymentKind, setPaymentKind] = useState<PaymentKind>('CASH');
+  const [paymentAccountId, setPaymentAccountId] = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
   const [discountPercent, setDiscountPercent] = useState(0);
   const [customer, setCustomer] = useState('Walk-in');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -35,7 +43,7 @@ export default function POSScreen() {
   );
 
   const addToCart = (product: Product) => {
-    if (product.stock <= 0) return;
+    if (product.itemType !== 'SERVICE' && product.trackStock !== false && product.stock <= 0) return;
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
@@ -56,7 +64,11 @@ export default function POSScreen() {
   };
 
   const total = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-  const { discount, tax, total: grandTotal } = calculateTotals(total, discountPercent);
+  const calculated = calculateTotals(total, discountPercent, settings?.taxRate ?? 5);
+  const { discount, tax } = calculated;
+  const serviceCharge = Math.round((total - discount) * ((settings?.serviceCharge ?? 0) / 100));
+  const grandTotal = calculated.total + serviceCharge;
+  const selectedPayment = paymentAccounts.find(account => account.id === paymentAccountId);
 
   const handleCheckout = async () => {
     if (!activeShift) { setCheckoutError('Open a cashier shift before taking payment.'); return; }
@@ -66,9 +78,15 @@ export default function POSScreen() {
       items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: item.product.price })),
       subtotal: total,
       tax,
+      serviceCharge,
       discount,
       total: grandTotal,
-      paymentMethod,
+      paymentMethod: paymentKind === 'CASH' ? 'Cash' : selectedPayment?.label || paymentKind,
+      paymentKind,
+      paymentAccountId: selectedPayment?.id || '',
+      paymentAccountLabel: selectedPayment?.label || '',
+      paymentAccountNumber: selectedPayment?.accountNumber || '',
+      paymentReference: paymentReference.trim(),
       status: 'COMPLETED', type: navigator.onLine ? 'ONLINE' : 'OFFLINE', employeeId: user?.id, shiftId: activeShift.id,
       createdAt: new Date().toISOString(),
     };
@@ -79,8 +97,12 @@ export default function POSScreen() {
         const queued = JSON.parse(localStorage.getItem('ki3-offline-orders') || '[]');
         localStorage.setItem('ki3-offline-orders', JSON.stringify([...queued, order]));
       }
-      if (customerPhone) await setRecord(`shops/${shopId}/customers`, customerPhone.replace(/\W/g, ''), { name: customer, phone: customerPhone, updatedAt: new Date().toISOString() });
-      setLastOrder({ id, ...order, grandTotal }); setShowReceipt(true); setCart([]); setDiscountPercent(0);
+      if (customerPhone) await setRecord(`shops/${shopId}/customers`, customerPhone.replace(/\W/g, ''), {
+        name: customer, phone: customerPhone, totalSpent: increment(grandTotal), visits: increment(1),
+        loyaltyPoints: increment(Math.floor((grandTotal / 1000) * (settings?.loyaltyPointsPer1000 ?? 0))), updatedAt: new Date().toISOString(),
+      });
+      if (navigator.onLine && user) await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SALE_COMPLETED', detail: `${id} · ${order.paymentMethod} · ${grandTotal} MMK`, createdAt: new Date().toISOString() });
+      setLastOrder({ id, ...order, grandTotal }); setShowReceipt(true); setCart([]); setDiscountPercent(0); setPaymentReference('');
     } catch (issue) { setCheckoutError(issue instanceof Error ? issue.message : 'Checkout failed.'); }
     finally { setBusy(false); }
   };
@@ -104,10 +126,18 @@ export default function POSScreen() {
     if (!shopId || !user) return;
     if (activeShift) {
       const closingCash = Number(window.prompt('Closing cash amount', '0'));
-      if (Number.isFinite(closingCash)) await updateRecord(`shops/${shopId}/shifts`, activeShift.id, { status: 'CLOSED', closingCash, closedAt: new Date().toISOString() });
+      const shiftCashSales = orders.filter(order => order.shiftId === activeShift.id && order.status === 'COMPLETED' && (order.paymentKind === 'CASH' || order.paymentMethod === 'Cash')).reduce((sum, order) => sum + order.total, 0);
+      const expectedCash = activeShift.openingCash + shiftCashSales;
+      if (Number.isFinite(closingCash)) {
+        await updateRecord(`shops/${shopId}/shifts`, activeShift.id, { status: 'CLOSED', closingCash, expectedCash, cashDifference: closingCash - expectedCash, closedAt: new Date().toISOString() });
+        await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SHIFT_CLOSED', detail: `Difference ${closingCash - expectedCash} MMK`, createdAt: new Date().toISOString() });
+      }
     } else {
       const openingCash = Number(window.prompt('Opening cash amount', '0'));
-      if (Number.isFinite(openingCash)) await createRecord(`shops/${shopId}/shifts`, { shopId, employeeId: user.id, employeeName: user.name, openingCash, openedAt: new Date().toISOString(), status: 'OPEN' });
+      if (Number.isFinite(openingCash)) {
+        await createRecord(`shops/${shopId}/shifts`, { shopId, employeeId: user.id, employeeName: user.name, openingCash, openedAt: new Date().toISOString(), status: 'OPEN' });
+        await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SHIFT_OPENED', detail: `Opening cash ${openingCash} MMK`, createdAt: new Date().toISOString() });
+      }
     }
   };
 
@@ -149,6 +179,11 @@ export default function POSScreen() {
                 className="pl-12 h-14 text-lg bg-white border-slate-200 shadow-sm rounded-full focus-visible:ring-blue-500"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  const exact = products.find(product => product.barcode && product.barcode === search.trim());
+                  if (exact) { e.preventDefault(); addToCart(exact); setSearch(''); }
+                }}
               />
             </div>
             
@@ -248,7 +283,7 @@ export default function POSScreen() {
             <div className="grid grid-cols-2 gap-2 mb-4">
               <Input value={customer} onChange={e => setCustomer(e.target.value)} placeholder="Customer name" className="h-10 bg-white" />
               <Input value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="Phone (optional)" className="h-10 bg-white" />
-              <label className="col-span-2 flex items-center justify-between text-xs font-bold text-slate-500">Discount %<Input type="number" min="0" max="100" value={discountPercent} onChange={e => setDiscountPercent(Number(e.target.value))} className="w-24 h-9 bg-white" /></label>
+              <label className="col-span-2 flex items-center justify-between text-xs font-bold text-slate-500">Discount %{!canDiscount && <span className="font-normal">Owner permission required</span>}<Input type="number" min="0" max="100" value={discountPercent} disabled={!canDiscount} onChange={e => setDiscountPercent(Number(e.target.value))} className="w-24 h-9 bg-white" /></label>
             </div>
             <div className="space-y-3 mb-6">
               <div className="flex justify-between text-slate-500 text-sm font-bold uppercase tracking-wider">
@@ -256,37 +291,34 @@ export default function POSScreen() {
                 <span>{formatCurrency(total)}</span>
               </div>
               <div className="flex justify-between text-slate-500 text-sm font-bold uppercase tracking-wider">
-                <span>Tax (5%)</span>
+                <span>Tax ({settings?.taxRate ?? 5}%)</span>
                 <span>{formatCurrency(tax)}</span>
               </div>
               <div className="flex justify-between text-slate-500 text-sm font-bold uppercase tracking-wider"><span>Discount</span><span>-{formatCurrency(discount)}</span></div>
+              {serviceCharge > 0 && <div className="flex justify-between text-slate-500 text-sm font-bold uppercase tracking-wider"><span>Service charge</span><span>{formatCurrency(serviceCharge)}</span></div>}
               <div className="flex justify-between text-slate-900 text-2xl font-black pt-3 border-t border-slate-200">
                 <span>Total</span>
                 <span className="text-blue-600">{formatCurrency(grandTotal)}</span>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mb-3">
-              <Button variant="outline" onClick={() => setPaymentMethod('Cash')} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200", paymentMethod === 'Cash' && 'border-blue-500 ring-2 ring-blue-100')}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+              <Button variant="outline" onClick={() => { setPaymentKind('CASH'); setPaymentAccountId(''); }} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200", paymentKind === 'CASH' && 'border-blue-500 ring-2 ring-blue-100')}>
                 <Banknote className="w-6 h-6 text-emerald-600" />
                 <span className="text-xs font-bold text-slate-600">Cash</span>
               </Button>
-              <Button variant="outline" onClick={() => setPaymentMethod('KBZ Pay')} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200", paymentMethod === 'KBZ Pay' && 'border-blue-500 ring-2 ring-blue-100')}>
-                <CreditCard className="w-6 h-6 text-blue-600" />
-                <span className="text-xs font-bold text-slate-600">KBZ Pay</span>
-              </Button>
-              <Button variant="outline" onClick={() => setPaymentMethod('Wave Pay')} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white hover:border-blue-500 border-slate-200", paymentMethod === 'Wave Pay' && 'border-blue-500 ring-2 ring-blue-100')}>
-                <CreditCard className="w-6 h-6 text-yellow-500" />
-                <span className="text-xs font-bold text-slate-600">Wave Pay</span>
-              </Button>
+              {paymentAccounts.filter(account => account.active).map(account => <Button key={account.id} variant="outline" onClick={() => { setPaymentKind(account.kind); setPaymentAccountId(account.id); }} className={cn("h-16 rounded-2xl flex flex-col items-center justify-center gap-1 bg-white border-slate-200", paymentAccountId === account.id && 'border-blue-500 ring-2 ring-blue-100')}><CreditCard className={cn('w-6 h-6', account.kind === 'WAVE' ? 'text-yellow-500' : 'text-blue-600')} /><span className="text-[11px] font-bold text-slate-600 line-clamp-1">{account.label}</span></Button>)}
             </div>
+            {paymentKind !== 'CASH' && <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm">
+              {selectedPayment ? <><p className="font-bold text-blue-900">{selectedPayment.label} · {selectedPayment.accountName}</p><p className="font-mono text-lg font-black text-blue-700">{selectedPayment.accountNumber}</p>{selectedPayment.bankName && <p className="text-blue-700">{selectedPayment.bankName}</p>}<Input className="mt-2 h-9 bg-white" placeholder="Payment reference / transaction ID" value={paymentReference} onChange={e => setPaymentReference(e.target.value)} /></> : <p className="text-amber-700 font-bold">Select an owner-configured payment account.</p>}
+            </div>}
             
             <Button 
               className="w-full h-16 text-lg font-bold rounded-2xl shadow-xl shadow-blue-500/30 bg-[#2563EB] hover:bg-blue-700 text-white" 
-              disabled={cart.length === 0 || busy || !activeShift}
+              disabled={cart.length === 0 || busy || !activeShift || (paymentKind !== 'CASH' && !selectedPayment)}
               onClick={handleCheckout}
             >
-              <Banknote className="w-6 h-6 mr-2" /> {busy ? 'Processing…' : `Pay ${formatCurrency(grandTotal)} · ${paymentMethod}`}
+              <Banknote className="w-6 h-6 mr-2" /> {busy ? 'Processing…' : `Pay ${formatCurrency(grandTotal)} · ${paymentKind === 'CASH' ? 'Cash' : selectedPayment?.label || paymentKind}`}
             </Button>
             {checkoutError && <p className="mt-2 text-xs font-medium text-red-600">{checkoutError}</p>}
             {productsError && <p className="mt-2 text-xs font-medium text-red-600">{productsError}</p>}
@@ -318,7 +350,7 @@ export default function POSScreen() {
                 <div className="text-center mb-6">
                   <h2 className="text-2xl font-black text-slate-900">{shop?.name || 'KI3 POS'}</h2>
                   <p className="text-sm text-slate-500 font-medium">{shop?.address || shop?.phone}</p>
-                  <p className="text-xs text-slate-400 mt-1">Order #{lastOrder.id}</p>
+                  <p className="text-xs text-slate-400 mt-1">Invoice #{settings?.invoicePrefix || 'KI3'}-{lastOrder.id}</p>
                   <p className="text-xs text-slate-400">{new Date(lastOrder.createdAt).toLocaleString()}</p>
                 </div>
 
@@ -341,14 +373,16 @@ export default function POSScreen() {
                     <span className="font-bold text-slate-700">{formatCurrency(lastOrder.tax)}</span>
                   </div>
                   <div className="flex justify-between text-sm"><span className="font-bold text-slate-500">Discount</span><span className="font-bold text-slate-700">-{formatCurrency(lastOrder.discount)}</span></div>
+                  {lastOrder.serviceCharge > 0 && <div className="flex justify-between text-sm"><span className="font-bold text-slate-500">Service charge</span><span className="font-bold text-slate-700">{formatCurrency(lastOrder.serviceCharge)}</span></div>}
                   <div className="flex justify-between text-lg pt-2">
                     <span className="font-black text-slate-900">Total</span>
                     <span className="font-black text-blue-600">{formatCurrency(lastOrder.grandTotal)}</span>
                   </div>
                   <div className="flex justify-between text-sm pt-1">
                     <span className="font-bold text-slate-500">Payment</span>
-                    <span className="font-bold text-slate-700">{lastOrder.paymentMethod}</span>
+                    <span className="font-bold text-slate-700">{lastOrder.paymentMethod}{lastOrder.paymentAccountNumber ? ` · ${lastOrder.paymentAccountNumber}` : ''}</span>
                   </div>
+                  {lastOrder.paymentReference && <div className="flex justify-between text-sm"><span className="font-bold text-slate-500">Reference</span><span className="font-bold text-slate-700">{lastOrder.paymentReference}</span></div>}
                 </div>
 
                 <div className="flex justify-center mb-4">

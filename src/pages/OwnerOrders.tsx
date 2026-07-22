@@ -103,7 +103,7 @@ export default function OwnerOrders() {
                   {order.status === 'PREPARING' && (
                     <Button onClick={() => handleUpdateStatus(order.id, 'COMPLETED')} className="h-8 px-4 text-xs bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20 text-white rounded-full">Complete</Button>
                   )}
-                  {order.status === 'COMPLETED' && (
+                  {order.status === 'COMPLETED' && user?.role === 'OWNER' && (
                     <Button variant="outline" onClick={() => user?.shopId && window.confirm('Refund this order and restore stock?') && refundOrder(user.shopId, order)} className="h-8 px-4 text-xs text-red-600 rounded-full">Refund</Button>
                   )}
                 </div>

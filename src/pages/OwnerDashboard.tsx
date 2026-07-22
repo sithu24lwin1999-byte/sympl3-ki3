@@ -9,7 +9,7 @@ import { ShoppingCart, DollarSign, Package, AlertCircle, Sparkles, TrendingUp, T
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/lib/auth';
 import { useLiveCollection, useLiveDocument } from '@/lib/firestore';
-import type { Order, Product, Shop } from '@/types';
+import type { Expense, Order, Product, Shop } from '@/types';
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
@@ -18,16 +18,19 @@ export default function OwnerDashboard() {
   const shop = useLiveDocument<Shop>(shopId ? `shops/${shopId}` : null);
   const { data: orders } = useLiveCollection<Order>(shopId ? `shops/${shopId}/orders` : null, 'createdAt');
   const { data: products } = useLiveCollection<Product>(shopId ? `shops/${shopId}/products` : null);
+  const { data: expenses } = useLiveCollection<Expense>(shopId ? `shops/${shopId}/expenses` : null, 'createdAt');
   const [isExporting, setIsExporting] = useState<'idle' | 'loading' | 'done'>('idle');
   const [salesRange, setSalesRange] = useState<'today' | 'weekly'>('today');
   const today = new Date().toISOString().slice(0, 10);
   const todayOrders = orders.filter(order => order.createdAt.startsWith(today) && order.status === 'COMPLETED');
   const revenue = todayOrders.reduce((sum, order) => sum + order.total, 0);
-  const lowStock = products.filter(product => product.stock <= product.minStock).length;
-  const profit = todayOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => {
+  const lowStock = products.filter(product => product.itemType !== 'SERVICE' && product.trackStock !== false && product.stock <= product.minStock).length;
+  const grossProfit = todayOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => {
     const product = products.find(candidate => candidate.id === item.productId);
     return itemSum + ((item.price - (product?.cost || 0)) * item.quantity);
   }, 0), 0);
+  const todayExpenses = expenses.filter(expense => expense.createdAt.startsWith(today)).reduce((sum, expense) => sum + expense.amount, 0);
+  const profit = grossProfit - todayExpenses;
   const liveSales = useMemo(() => {
     if (salesRange === 'today') return Array.from({ length: 13 }, (_, index) => {
       const hour = index + 8;
@@ -103,7 +106,7 @@ export default function OwnerDashboard() {
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Total Orders</p>
           <p className="text-2xl font-black">{todayOrders.length}</p>
           <div className="mt-2 flex items-center gap-1 text-emerald-500 font-bold text-xs">
-            <span>24 Online / 118 Offline</span>
+            <span>{todayOrders.filter(order => order.type === 'ONLINE').length} online / {todayOrders.filter(order => order.type === 'OFFLINE').length} offline</span>
           </div>
         </Card>
         
@@ -111,7 +114,7 @@ export default function OwnerDashboard() {
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Low Stock Items</p>
           <p className="text-2xl font-black text-orange-500">{lowStock}</p>
           <div className="mt-2 flex items-center gap-1 text-slate-400 font-bold text-xs">
-            <span>Critical: Coffee Beans</span>
+            <span>Requires restocking</span>
           </div>
         </Card>
 

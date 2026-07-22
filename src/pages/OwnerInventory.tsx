@@ -16,7 +16,8 @@ export default function OwnerInventory() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
-  const [newProduct, setNewProduct] = useState({ name: '', sku: '', category: 'Beverage', price: '', cost: '', stock: '', image: '' });
+  const emptyItem = { name: '', sku: '', barcode: '', category: 'General', price: '', cost: '', stock: '', minStock: '10', image: '', itemType: 'PRODUCT' as 'PRODUCT' | 'SERVICE', trackStock: true };
+  const [newProduct, setNewProduct] = useState(emptyItem);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -35,34 +36,50 @@ export default function OwnerInventory() {
     const p = {
       name: newProduct.name,
       sku: newProduct.sku,
+      barcode: newProduct.barcode,
       category: newProduct.category,
       price: parseFloat(newProduct.price) || 0,
       cost: parseFloat(newProduct.cost) || 0,
       stock: stock,
-      minStock: 10,
-      status: stock > 10 ? 'In Stock' : stock > 0 ? 'Low Stock' : 'Out of Stock',
+      minStock: parseInt(newProduct.minStock) || 0,
+      status: newProduct.itemType === 'SERVICE' || !newProduct.trackStock ? 'In Stock' : stock > (parseInt(newProduct.minStock) || 0) ? 'In Stock' : stock > 0 ? 'Low Stock' : 'Out of Stock',
       image: newProduct.image || 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=100&h=100&fit=crop',
       shopId: user!.shopId!,
+      itemType: newProduct.itemType,
+      trackStock: newProduct.itemType === 'SERVICE' ? false : newProduct.trackStock,
       updatedAt: new Date().toISOString(),
     };
     if (!inventoryPath) return;
-    if (editingId) await setRecord(inventoryPath, editingId, p);
-    else await createRecord(inventoryPath, { ...p, createdAt: new Date().toISOString() });
+    const now = new Date().toISOString();
+    let productId = editingId || '';
+    if (editingId) {
+      const previous = products.find(item => item.id === editingId);
+      await setRecord(inventoryPath, editingId, p);
+      const difference = stock - (previous?.stock || 0);
+      if (difference && p.trackStock) await createRecord(`shops/${user!.shopId}/stockMovements`, { shopId: user!.shopId, productId: editingId, productName: p.name, type: 'ADJUSTMENT', quantity: difference, balance: stock, note: 'Manual inventory edit', createdAt: now });
+    } else {
+      const created = await createRecord(inventoryPath, { ...p, createdAt: now }); productId = created.id;
+      if (stock > 0 && p.trackStock) await createRecord(`shops/${user!.shopId}/stockMovements`, { shopId: user!.shopId, productId, productName: p.name, type: 'ADJUSTMENT', quantity: stock, balance: stock, note: 'Opening stock', createdAt: now });
+    }
+    await createRecord(`shops/${user!.shopId}/auditLogs`, { shopId: user!.shopId, actorId: user!.id, actorName: user!.name, action: editingId ? 'ITEM_UPDATED' : 'ITEM_CREATED', detail: p.name, createdAt: now });
     setShowAddModal(false);
     setEditingId(null);
-    setNewProduct({ name: '', sku: '', category: 'Beverage', price: '', cost: '', stock: '', image: '' });
+    setNewProduct(emptyItem);
   };
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this product?')) return;
+    const product = products.find(item => item.id === id);
     if (inventoryPath) await deleteRecord(inventoryPath, id);
+    if (user?.shopId) await createRecord(`shops/${user.shopId}/auditLogs`, { shopId: user.shopId, actorId: user.id, actorName: user.name, action: 'ITEM_DELETED', detail: product?.name || id, createdAt: new Date().toISOString() });
   };
 
   const handleEdit = (product: Product) => {
     setEditingId(product.id);
     setNewProduct({
-      name: product.name, sku: product.sku, category: product.category,
-      price: String(product.price), cost: String(product.cost), stock: String(product.stock), image: product.image,
+      name: product.name, sku: product.sku, barcode: product.barcode || '', category: product.category,
+      price: String(product.price), cost: String(product.cost), stock: String(product.stock), minStock: String(product.minStock), image: product.image,
+      itemType: product.itemType || 'PRODUCT', trackStock: product.trackStock !== false,
     });
     setShowAddModal(true);
   };
@@ -70,27 +87,27 @@ export default function OwnerInventory() {
   const closeModal = () => {
     setShowAddModal(false);
     setEditingId(null);
-    setNewProduct({ name: '', sku: '', category: 'Beverage', price: '', cost: '', stock: '', image: '' });
+    setNewProduct(emptyItem);
   };
 
   const filteredProducts = products.filter(p =>
     (categoryFilter === 'All' || p.category === categoryFilter) &&
     (statusFilter === 'All' || p.status === statusFilter) &&
-    (p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()))
+    (`${p.name} ${p.sku} ${p.barcode || ''}`.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
     <DashboardLayout role="OWNER">
       <div className="flex justify-between items-end mb-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Inventory Management</h1>
-          <p className="text-slate-500">Manage your products, track stock levels, and update pricing.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Products & Services</h1>
+          <p className="text-slate-500">Manage retail products, food items, fashion stock and service items.</p>
         </div>
         <Button 
           className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20"
           onClick={() => setShowAddModal(true)}
         >
-          <Plus className="w-4 h-4" /> Add Product
+          <Plus className="w-4 h-4" /> Add Item
         </Button>
       </div>
 
@@ -128,7 +145,7 @@ export default function OwnerInventory() {
             <Search className="w-4 h-4 text-slate-400 mr-2" />
             <input 
               type="text" 
-              placeholder="Search products by name or SKU..." 
+            placeholder="Search name, SKU or barcode..."
               className="bg-transparent border-none outline-none text-sm w-full text-slate-900"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -136,7 +153,7 @@ export default function OwnerInventory() {
           </div>
           <div className="flex gap-2">
             <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 outline-none">
-              <option>All</option><option>Beverage</option><option>Bakery</option><option>Raw Material</option>
+              <option>All</option>{Array.from(new Set(products.map(product => product.category))).map(category => <option key={category}>{category}</option>)}
             </select>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 outline-none">
               <option>All</option><option>In Stock</option><option>Low Stock</option><option>Out of Stock</option>
@@ -176,7 +193,7 @@ export default function OwnerInventory() {
                     <div className="text-xs text-slate-500">Cost: {formatCurrency(product.cost)}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-bold text-slate-700">{product.stock} units</span>
+                    <span className="text-sm font-bold text-slate-700">{product.itemType === 'SERVICE' || product.trackStock === false ? 'Not tracked' : `${product.stock} units`}</span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <Badge 
@@ -215,7 +232,7 @@ export default function OwnerInventory() {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
             <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">{editingId ? 'Edit Product' : 'Add New Product'}</h2>
+              <h2 className="text-xl font-bold text-slate-900">{editingId ? 'Edit Item' : 'Add Product or Service'}</h2>
               <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
                 <X className="w-5 h-5" />
               </button>
@@ -240,6 +257,10 @@ export default function OwnerInventory() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Item Type</label>
+                <select className="flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4" value={newProduct.itemType} onChange={e => setNewProduct({ ...newProduct, itemType: e.target.value as 'PRODUCT' | 'SERVICE', trackStock: e.target.value !== 'SERVICE' })}><option value="PRODUCT">Physical Product / Food</option><option value="SERVICE">Service</option></select>
+              </div>
+              <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Product Name</label>
                 <Input 
                   placeholder="e.g. Caramel Macchiato" 
@@ -248,7 +269,7 @@ export default function OwnerInventory() {
                   className="bg-white border-slate-200"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">SKU</label>
                   <Input 
@@ -259,19 +280,15 @@ export default function OwnerInventory() {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Barcode</label>
+                  <Input placeholder="Scan / type" value={newProduct.barcode} onChange={e => setNewProduct({ ...newProduct, barcode: e.target.value })} className="bg-white border-slate-200" />
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Category</label>
-                  <select 
-                    className="flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    value={newProduct.category}
-                    onChange={(e) => setNewProduct({...newProduct, category: e.target.value})}
-                  >
-                    <option value="Beverage">Beverage</option>
-                    <option value="Bakery">Bakery</option>
-                    <option value="Raw Material">Raw Material</option>
-                  </select>
+                  <Input placeholder="Food, Clothing, Service..." value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})} />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Price</label>
                   <Input 
@@ -296,10 +313,13 @@ export default function OwnerInventory() {
                     placeholder="0" type="number"
                     value={newProduct.stock}
                     onChange={(e) => setNewProduct({...newProduct, stock: e.target.value})}
+                    disabled={newProduct.itemType === 'SERVICE' || !newProduct.trackStock}
                     className="bg-white border-slate-200"
                   />
                 </div>
+                <div><label className="block text-sm font-bold text-slate-700 mb-2">Low stock alert</label><Input type="number" min="0" value={newProduct.minStock} onChange={e => setNewProduct({ ...newProduct, minStock: e.target.value })} disabled={newProduct.itemType === 'SERVICE' || !newProduct.trackStock} /></div>
               </div>
+              {newProduct.itemType === 'PRODUCT' && <label className="flex items-center gap-3 text-sm font-bold"><input type="checkbox" checked={newProduct.trackStock} onChange={e => setNewProduct({ ...newProduct, trackStock: e.target.checked })} /> Track stock for this item</label>}
             </div>
 
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">

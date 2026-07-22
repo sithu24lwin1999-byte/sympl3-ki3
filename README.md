@@ -6,14 +6,19 @@ KI3 POS is a multi-tenant shop-management and point-of-sale web app. It supports
 
 - Secure email/password and Google sign-in with role-protected routes
 - Tenant shop and account provisioning
-- Realtime products, employees, orders, customers, shifts and settings
-- Transactional stock deduction and refund stock restoration
-- Discounts, taxes, customer capture, shift opening/closing and receipt printing
+- Realtime products/services, employees, orders, customers, shifts and settings
+- Owner-configured KPay, Wave Money and bank accounts shown directly at employee checkout
+- Payment transaction history grouped by cash, KPay, Wave and bank transfer
+- Transactional stock deduction, purchase receiving, stock movements and refund restoration
+- Suppliers, purchases, expenses, loyalty points, audit logs and cash-shift reconciliation
+- Barcode checkout, employee permissions, configurable taxes/service charges and invoice printing
+- Business profiles for restaurants, retail, fashion, bakeries, service businesses and other shops
+- Password-reset email flow for owners and employees
 - Offline order queue with automatic reconnect sync
 - Live owner/admin dashboards, CSV/PDF reports and cloud-data backup
 - Installable PWA and responsive layouts
 
-Payment buttons record the selected method only; no external wallet or bank API is included.
+Wallet and bank payments record the owner-selected account and optional transaction reference. No external wallet or bank API transfers money automatically.
 
 ## Local development
 

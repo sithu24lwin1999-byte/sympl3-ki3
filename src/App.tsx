@@ -13,6 +13,7 @@ const OwnerInventory = lazy(() => import('./pages/OwnerInventory'));
 const OwnerOrders = lazy(() => import('./pages/OwnerOrders'));
 const OwnerEmployees = lazy(() => import('./pages/OwnerEmployees'));
 const OwnerSettings = lazy(() => import('./pages/OwnerSettings'));
+const OwnerOperations = lazy(() => import('./pages/OwnerOperations'));
 const POSScreen = lazy(() => import('./pages/POSScreen'));
 
 function homeFor(role: Role) {
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/owner/inventory" element={<Protected roles={['OWNER']}><OwnerInventory /></Protected>} />
           <Route path="/owner/employees" element={<Protected roles={['OWNER']}><OwnerEmployees /></Protected>} />
           <Route path="/owner/settings" element={<Protected roles={['OWNER']}><OwnerSettings /></Protected>} />
+          <Route path="/owner/operations" element={<Protected roles={['OWNER']}><OwnerOperations /></Protected>} />
           <Route path="/pos" element={<Protected roles={['OWNER', 'EMPLOYEE']}><POSScreen /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

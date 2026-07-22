@@ -4,7 +4,7 @@ import { Card, Button, Badge, Input } from '@/components/ui';
 import { Search, Plus, Edit, Trash2, ShieldCheck, Mail, Phone, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createManagedUser, useAuth } from '@/lib/auth';
-import { deleteRecord, setRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
+import { createRecord, deleteRecord, setRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
 import type { Employee } from '@/types';
 
 export default function OwnerEmployees() {
@@ -14,7 +14,8 @@ export default function OwnerEmployees() {
   const { data: employees, loading, error } = useLiveCollection<Employee>(employeesPath);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [newEmployee, setNewEmployee] = useState({ name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning' });
+  const emptyEmployee = { name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning', permissions: { discount: false, refund: false, editStock: false, viewOrders: true } };
+  const [newEmployee, setNewEmployee] = useState(emptyEmployee);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -33,13 +34,15 @@ export default function OwnerEmployees() {
       status: 'Active',
       shift: newEmployee.shift,
       shopId: user.shopId,
+      permissions: newEmployee.permissions,
       updatedAt: new Date().toISOString(),
     };
     await setRecord(employeesPath, employeeId, e);
     await updateRecord('users', employeeId, { name: e.name, email: e.email.toLowerCase(), active: true });
+    await createRecord(`shops/${user.shopId}/auditLogs`, { shopId: user.shopId, actorId: user.id, actorName: user.name, action: editingId ? 'EMPLOYEE_UPDATED' : 'EMPLOYEE_CREATED', detail: e.name, createdAt: new Date().toISOString() });
     setShowAddModal(false);
     setEditingId(null);
-    setNewEmployee({ name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning' });
+    setNewEmployee(emptyEmployee);
     } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to save employee.'); }
     finally { setSaving(false); }
   };
@@ -48,18 +51,19 @@ export default function OwnerEmployees() {
     if (!window.confirm('Delete this employee?')) return;
     if (employeesPath) await deleteRecord(employeesPath, id);
     await updateRecord('users', id, { active: false });
+    if (user?.shopId) await createRecord(`shops/${user.shopId}/auditLogs`, { shopId: user.shopId, actorId: user.id, actorName: user.name, action: 'EMPLOYEE_DISABLED', detail: id, createdAt: new Date().toISOString() });
   };
 
   const handleEdit = (employee: Employee) => {
     setEditingId(employee.id);
-    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, password: '', phone: employee.phone, shift: employee.shift });
+    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, password: '', phone: employee.phone, shift: employee.shift, permissions: employee.permissions || emptyEmployee.permissions });
     setShowAddModal(true);
   };
 
   const closeModal = () => {
     setShowAddModal(false);
     setEditingId(null);
-    setNewEmployee({ name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning' });
+    setNewEmployee(emptyEmployee);
   };
 
   return (
@@ -233,6 +237,12 @@ export default function OwnerEmployees() {
                 <label className="block text-sm font-bold text-slate-700 mb-2">Temporary Password</label>
                 <Input type="password" minLength={8} value={newEmployee.password} onChange={(e) => setNewEmployee({...newEmployee, password: e.target.value})} className="bg-white border-slate-200" />
               </div>}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Permissions</label>
+                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3">
+                  {([['discount', 'Give discounts'], ['refund', 'Process refunds'], ['editStock', 'Adjust stock'], ['viewOrders', 'View orders']] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={newEmployee.permissions[key]} onChange={e => setNewEmployee({ ...newEmployee, permissions: { ...newEmployee.permissions, [key]: e.target.checked } })} />{label}</label>)}
+                </div>
+              </div>
             </div>
 
             {formError && <p className="px-6 pb-3 text-sm text-red-600">{formError}</p>}

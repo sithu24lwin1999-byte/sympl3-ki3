@@ -13,6 +13,10 @@ service cloud.firestore {
       return signedIn() && exists(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid));
     }
     function hasShopAccess(shopId) { return isAdmin() || ownsShop(shopId) || isEmployee(shopId); }
+    function canDiscount(shopId) {
+      return isAdmin() || ownsShop(shopId) || (isEmployee(shopId)
+        && get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data.permissions.discount == true);
+    }
     function validMoney(value) { return value is number && value >= 0 && value < 100000000000; }
 
     match /users/{uid} {
@@ -31,7 +35,7 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (ownsShop(shopId)
         && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'updatedAt']));
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'businessType', 'updatedAt']));
 
       match /products/{productId} {
         allow read: if hasShopAccess(shopId);
@@ -59,7 +63,8 @@ service cloud.firestore {
         allow create: if hasShopAccess(shopId)
           && request.resource.data.shopId == shopId
           && validMoney(request.resource.data.total)
-          && request.resource.data.items is list;
+          && request.resource.data.items is list
+          && (request.resource.data.discount == 0 || canDiscount(shopId));
         allow update: if isAdmin() || ownsShop(shopId) || (isEmployee(shopId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
         allow delete: if isAdmin();
@@ -78,6 +83,38 @@ service cloud.firestore {
 
       match /settings/{settingId} {
         allow read, write: if isAdmin() || ownsShop(shopId);
+      }
+
+      match /paymentAccounts/{accountId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+      }
+
+      match /suppliers/{supplierId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+      }
+
+      match /purchases/{purchaseId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if isAdmin() || ownsShop(shopId);
+        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+      }
+
+      match /stockMovements/{movementId} {
+        allow read: if hasShopAccess(shopId);
+        allow create: if hasShopAccess(shopId) && request.resource.data.shopId == shopId;
+        allow update, delete: if isAdmin() || ownsShop(shopId);
+      }
+
+      match /auditLogs/{logId} {
+        allow read: if isAdmin() || ownsShop(shopId);
+        allow create: if hasShopAccess(shopId) && request.resource.data.actorId == request.auth.uid;
+        allow update, delete: if false;
       }
     }
 

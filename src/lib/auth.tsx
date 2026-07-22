@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { createUserWithEmailAndPassword, getAuth, getIdTokenResult, GoogleAuthProvider, User as FirebaseUser, onAuthStateChanged, sendEmailVerification, signInWithEmailAndPassword, signInWithPopup, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, getAuth, getIdTokenResult, GoogleAuthProvider, User as FirebaseUser, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { deleteApp, initializeApp } from 'firebase/app';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -12,6 +12,7 @@ interface AuthContextValue {
   loading: boolean;
   login(email: string, password: string): Promise<void>;
   loginWithGoogle(): Promise<void>;
+  resetPassword(email: string): Promise<void>;
   logout(): Promise<void>;
 }
 
@@ -65,6 +66,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loginWithGoogle: async () => {
       const credential = await signInWithPopup(auth, new GoogleAuthProvider());
       setUser(await resolveUser(credential.user));
+    },
+    resetPassword: async (email) => {
+      if (!email.trim()) throw new Error('Enter your email address first.');
+      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
     },
     logout: () => signOut(auth),
   }), [user, firebaseUser, loading]);
