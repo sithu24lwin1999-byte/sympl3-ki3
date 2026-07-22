@@ -4,7 +4,7 @@ KI3 POS is a multi-tenant shop-management and point-of-sale web app. It supports
 
 ## Features
 
-- Secure email/password and Google sign-in with role-protected routes
+- Secure email/password sign-in with role-protected routes
 - Tenant shop and account provisioning
 - Realtime products/services, employees, orders, customers, shifts and settings
 - Owner-configured KPay, Wave Money and bank accounts shown directly at employee checkout
@@ -42,7 +42,7 @@ npm run build
 
 ## Firebase
 
-The app uses project `gen-lang-client-0708972425` and the named Firestore database configured in `firebase-applet-config.json`. Enable Google and Email/Password providers in Firebase Authentication.
+The app uses project `gen-lang-client-0708972425` and the named Firestore database configured in `firebase-applet-config.json`. Email/Password is the supported Firebase Authentication provider.
 
 Deploy rules and indexes:
 

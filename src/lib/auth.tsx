@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { createUserWithEmailAndPassword, getAuth, getIdTokenResult, GoogleAuthProvider, User as FirebaseUser, onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, EmailAuthProvider, getAuth, getIdTokenResult, User as FirebaseUser, onAuthStateChanged, reauthenticateWithCredential, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updatePassword, verifyBeforeUpdateEmail } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { deleteApp, initializeApp } from 'firebase/app';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -11,8 +11,8 @@ interface AuthContextValue {
   firebaseUser: FirebaseUser | null;
   loading: boolean;
   login(email: string, password: string): Promise<void>;
-  loginWithGoogle(): Promise<void>;
   resetPassword(email: string): Promise<void>;
+  changeAdminCredentials(input: { currentPassword: string; newEmail?: string; newPassword?: string }): Promise<void>;
   logout(): Promise<void>;
 }
 
@@ -58,13 +58,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const credential = await signInWithEmailAndPassword(auth, email, password);
       setUser(await resolveUser(credential.user));
     },
-    loginWithGoogle: async () => {
-      const credential = await signInWithPopup(auth, new GoogleAuthProvider());
-      setUser(await resolveUser(credential.user));
-    },
     resetPassword: async (email) => {
       if (!email.trim()) throw new Error('Enter your email address first.');
       await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+    },
+    changeAdminCredentials: async ({ currentPassword, newEmail, newPassword }) => {
+      if (!firebaseUser || user?.role !== 'ADMIN' || !firebaseUser.email) throw new Error('Admin account is not available.');
+      const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
+      await reauthenticateWithCredential(firebaseUser, credential);
+      if (newEmail && newEmail.trim().toLowerCase() !== firebaseUser.email.toLowerCase()) await verifyBeforeUpdateEmail(firebaseUser, newEmail.trim().toLowerCase(), { url: 'https://sithu24lwin1999-byte.github.io/sympl3-ki3/' });
+      if (newPassword) await updatePassword(firebaseUser, newPassword);
+      await firebaseUser.reload();
+      setUser(await resolveUser(firebaseUser));
     },
     logout: () => signOut(auth),
   }), [user, firebaseUser, loading]);

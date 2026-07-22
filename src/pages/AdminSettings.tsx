@@ -5,8 +5,10 @@ import { Save, Globe, Shield, CreditCard, Bell, Database, Loader2, CheckCircle2 
 import { downloadText } from '@/lib/actions';
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { useAuth } from '@/lib/auth';
 
 export default function AdminSettings() {
+  const { firebaseUser, changeAdminCredentials } = useAuth();
   const [activeTab, setActiveTab] = useState('General Settings');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -18,6 +20,11 @@ export default function AdminSettings() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupDone, setBackupDone] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
+  const accountEmail = firebaseUser?.email || '';
+  const [credentials, setCredentials] = useState({ currentPassword: '', newEmail: '', newPassword: '', confirmPassword: '' });
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountMessage, setAccountMessage] = useState('');
+  const [accountError, setAccountError] = useState('');
 
   useEffect(() => {
     getDoc(doc(db, 'settings', 'platform')).then(snapshot => {
@@ -25,7 +32,7 @@ export default function AdminSettings() {
       const values: string[] = savedSettings[activeTab] || [];
       if (snapshot.data()?.basicPlanPrice) setBasicPlanPrice(snapshot.data()!.basicPlanPrice);
       if (snapshot.data()?.premiumPlanPrice) setPremiumPlanPrice(snapshot.data()!.premiumPlanPrice);
-      settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select').forEach((field, index) => {
+      settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([data-sensitive="true"]), select:not([data-sensitive="true"])').forEach((field, index) => {
         if (values[index] !== undefined) field.value = values[index];
       });
     });
@@ -35,7 +42,7 @@ export default function AdminSettings() {
     setIsSaving(true);
     const snapshot = await getDoc(doc(db, 'settings', 'platform'));
     const savedSettings = snapshot.data()?.tabs || {};
-    const fields = settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select');
+    const fields = settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([data-sensitive="true"]), select:not([data-sensitive="true"])');
     savedSettings[activeTab] = fields ? Array.from(fields).map(field => (field as HTMLInputElement | HTMLSelectElement).value) : [];
     await setDoc(doc(db, 'settings', 'platform'), { tabs: savedSettings, basicPlanPrice, premiumPlanPrice, updatedAt: new Date().toISOString() }, { merge: true });
     setTimeout(() => {
@@ -43,6 +50,24 @@ export default function AdminSettings() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }, 800);
+  };
+
+  const handleAccountChange = async () => {
+    setAccountError(''); setAccountMessage('');
+    if (!credentials.currentPassword) { setAccountError('Current password is required.'); return; }
+    if (!credentials.newEmail.trim() && !credentials.newPassword) { setAccountError('Enter a new email or password.'); return; }
+    if (credentials.newEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(credentials.newEmail.trim())) { setAccountError('Enter a valid new email address.'); return; }
+    if (credentials.newPassword && credentials.newPassword.length < 8) { setAccountError('New password must contain at least 8 characters.'); return; }
+    if (credentials.newPassword !== credentials.confirmPassword) { setAccountError('New passwords do not match.'); return; }
+    setAccountBusy(true);
+    try {
+      await changeAdminCredentials({ currentPassword: credentials.currentPassword, newEmail: credentials.newEmail || undefined, newPassword: credentials.newPassword || undefined });
+      setCredentials({ currentPassword: '', newEmail: '', newPassword: '', confirmPassword: '' });
+      setAccountMessage(credentials.newEmail.trim() ? `A confirmation link was sent to ${credentials.newEmail.trim().toLowerCase()}. The Admin email changes after that link is opened.${credentials.newPassword ? ' The password was updated now.' : ''}` : 'Main Admin password updated successfully.');
+    } catch (issue) {
+      const message = issue instanceof Error ? issue.message : 'Unable to update the Admin account.';
+      setAccountError(message.includes('invalid-credential') || message.includes('wrong-password') ? 'Current password is incorrect.' : message.includes('email-already-in-use') ? 'That email is already being used by another account.' : message);
+    } finally { setAccountBusy(false); }
   };
 
   const handleBackup = async () => {
@@ -164,7 +189,7 @@ export default function AdminSettings() {
             </>
           )}
 
-          {activeTab === 'Security & Access' && (
+          {activeTab === 'Security & Access' && (<>
             <Card className="p-6">
               <h3 className="text-lg font-bold text-slate-900 mb-6">Security Settings</h3>
               <p className="text-slate-500">Configure password policies, 2FA, and session timeouts here.</p>
@@ -175,7 +200,20 @@ export default function AdminSettings() {
                 </div>
               </div>
             </Card>
-          )}
+            <Card className="p-6">
+              <h3 className="text-lg font-bold text-slate-900">Main Admin Account</h3>
+              <p className="mt-1 text-sm text-slate-500">Changing the email or password requires the current password. Passwords are sent only to Firebase Authentication and are never stored in Firestore.</p>
+              <div className="mt-5 space-y-4">
+                <div><label className="block text-sm font-bold text-slate-700 mb-2">Current Admin Email</label><Input data-sensitive="true" value={accountEmail || firebaseUser?.email || ''} disabled /></div>
+                <div><label className="block text-sm font-bold text-slate-700 mb-2">Current Password</label><Input data-sensitive="true" type="password" autoComplete="current-password" value={credentials.currentPassword} onChange={event => setCredentials({ ...credentials, currentPassword: event.target.value })} /></div>
+                <div><label className="block text-sm font-bold text-slate-700 mb-2">New Email (optional)</label><Input data-sensitive="true" type="email" autoComplete="email" placeholder="new-admin@example.com" value={credentials.newEmail} onChange={event => setCredentials({ ...credentials, newEmail: event.target.value })} /></div>
+                <div className="grid md:grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-slate-700 mb-2">New Password (optional)</label><Input data-sensitive="true" type="password" minLength={8} autoComplete="new-password" value={credentials.newPassword} onChange={event => setCredentials({ ...credentials, newPassword: event.target.value })} /></div><div><label className="block text-sm font-bold text-slate-700 mb-2">Confirm New Password</label><Input data-sensitive="true" type="password" minLength={8} autoComplete="new-password" value={credentials.confirmPassword} onChange={event => setCredentials({ ...credentials, confirmPassword: event.target.value })} /></div></div>
+                {accountMessage && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{accountMessage}</p>}
+                {accountError && <p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{accountError}</p>}
+                <Button onClick={handleAccountChange} disabled={accountBusy}>{accountBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}{accountBusy ? 'Updating…' : 'Update Admin Login'}</Button>
+              </div>
+            </Card>
+          </>)}
 
           {activeTab === 'Payment Gateways' && (
              <Card className="p-6">

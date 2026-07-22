@@ -4,7 +4,7 @@ import { Store, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 export default function Login() {
-  const { login, loginWithGoogle, resetPassword } = useAuth();
+  const { login, resetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,8 +35,6 @@ export default function Login() {
           <button type="button" disabled={busy} onClick={() => run(async () => { await resetPassword(email); setMessage('Password reset link sent. Please check your email.'); })} className="w-full text-sm font-bold text-blue-600 hover:text-blue-700">Forgot password?</button>
         </form>
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-700">{message}</p>}
-        <div className="my-5 flex items-center gap-3 text-xs text-slate-400"><span className="h-px flex-1 bg-slate-200" />OR<span className="h-px flex-1 bg-slate-200" /></div>
-        <Button type="button" variant="outline" disabled={busy} onClick={() => run(loginWithGoogle)} className="w-full bg-white">Continue with Google</Button>
       </Card>
     </div>
   );
