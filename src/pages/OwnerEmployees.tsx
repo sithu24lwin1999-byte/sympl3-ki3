@@ -1,270 +1,50 @@
 import React, { useState } from 'react';
+import { Activity, Download, Edit, KeyRound, Mail, Phone, Plus, Power, Search, ShieldCheck, ShoppingCart, X } from 'lucide-react';
 import DashboardLayout from '@/layouts/DashboardLayout';
-import { Card, Button, Badge, Input } from '@/components/ui';
-import { Search, Plus, Edit, Trash2, ShieldCheck, Mail, Phone, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { createManagedUser, useAuth } from '@/lib/auth';
-import { createRecord, deleteRecord, setRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
-import type { Branch, Employee } from '@/types';
+import { Badge, Button, Card, Input, TableStateRow } from '@/components/ui';
+import { createManagedUser, updateManagedUser, useAuth } from '@/lib/auth';
+import { downloadCsv } from '@/lib/actions';
+import { createRecord, setRecord, useLiveCollection } from '@/lib/firestore';
+import { normalizePermissions, permissionLabels, rolePermissions, type EmployeeJobRole } from '@/lib/permissions';
+import { cn, formatCurrency } from '@/lib/utils';
+import type { AuditLog, Branch, Employee, EmployeePermissions, Order } from '@/types';
 
-export default function OwnerEmployees() {
-  const { user } = useAuth();
-  const employeesPath = user?.shopId ? `shops/${user.shopId}/employees` : null;
-  const [search, setSearch] = useState('');
-  const { data: employees, loading, error } = useLiveCollection<Employee>(employeesPath);
-  const { data: storedBranches } = useLiveCollection<Branch>(user?.shopId ? `shops/${user.shopId}/branches` : null, 'createdAt');
-  const branches = storedBranches.some(branch => branch.id === 'main') ? storedBranches : [{ id: 'main', name: 'Main Branch' } as Branch, ...storedBranches];
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const emptyEmployee = { name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning', branchId: 'main', permissions: { discount: false, refund: false, editStock: false, viewOrders: true } };
-  const [newEmployee, setNewEmployee] = useState(emptyEmployee);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState('');
+const emptyForm = () => ({ name:'',role:'Cashier' as EmployeeJobRole,email:'',password:'',phone:'',shift:'Morning',branchId:'main',permissions:{...rolePermissions.Cashier} });
 
-  const handleAddEmployee = async () => {
-    if (!newEmployee.name) return;
-    if (!employeesPath || !user?.shopId) return;
-    setSaving(true); setFormError('');
-    try {
-      let employeeId = editingId;
-      const selectedBranch = branches.find(branch => branch.id === newEmployee.branchId);
-      if (!employeeId) employeeId = await createManagedUser({ email: newEmployee.email, password: newEmployee.password, name: newEmployee.name, role: 'EMPLOYEE', shopId: user.shopId, branchId: newEmployee.branchId, branchName: selectedBranch?.name || 'Main Branch' });
-    const e = {
-      name: newEmployee.name,
-      role: newEmployee.role,
-      email: newEmployee.email,
-      phone: newEmployee.phone,
-      status: 'Active',
-      shift: newEmployee.shift,
-      shopId: user.shopId,
-      branchId: newEmployee.branchId,
-      branchName: selectedBranch?.name || 'Main Branch',
-      permissions: newEmployee.permissions,
-      updatedAt: new Date().toISOString(),
-    };
-    await setRecord(employeesPath, employeeId, e);
-    await updateRecord('users', employeeId, { name: e.name, email: e.email.toLowerCase(), branchId: e.branchId, branchName: e.branchName, active: true });
-    await createRecord(`shops/${user.shopId}/auditLogs`, { shopId: user.shopId, actorId: user.id, actorName: user.name, action: editingId ? 'EMPLOYEE_UPDATED' : 'EMPLOYEE_CREATED', detail: e.name, createdAt: new Date().toISOString() });
-    setShowAddModal(false);
-    setEditingId(null);
-    setNewEmployee(emptyEmployee);
-    } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to save employee.'); }
-    finally { setSaving(false); }
-  };
+export default function OwnerEmployees(){
+  const {user,resetPassword}=useAuth(); const shopId=user?.shopId; const employeesPath=shopId?`shops/${shopId}/employees`:null;
+  const {data:employees,loading,error}=useLiveCollection<Employee>(employeesPath);
+  const {data:orders}=useLiveCollection<Order>(shopId?`shops/${shopId}/orders`:null,'createdAt');
+  const {data:logs}=useLiveCollection<AuditLog>(shopId?`shops/${shopId}/auditLogs`:null,'createdAt');
+  const {data:storedBranches}=useLiveCollection<Branch>(shopId?`shops/${shopId}/branches`:null,'createdAt');
+  const branches=storedBranches.some(branch=>branch.id==='main')?storedBranches:[{id:'main',name:'Main Branch'} as Branch,...storedBranches];
+  const [search,setSearch]=useState(''); const [roleFilter,setRoleFilter]=useState('ALL'); const [statusFilter,setStatusFilter]=useState('ALL');
+  const [showForm,setShowForm]=useState(false); const [editing,setEditing]=useState<Employee|null>(null); const [details,setDetails]=useState<Employee|null>(null); const [form,setForm]=useState(emptyForm());
+  const [saving,setSaving]=useState(false); const [formError,setFormError]=useState(''); const [message,setMessage]=useState('');
+  const notify=(value:string)=>{setMessage(value);window.setTimeout(()=>setMessage(''),4500)};
+  const filtered=employees.filter(employee=>(roleFilter==='ALL'||employee.role===roleFilter)&&(statusFilter==='ALL'||employee.status===statusFilter)&&`${employee.name} ${employee.email} ${employee.phone}`.toLowerCase().includes(search.toLowerCase()));
+  const employeeOrders=(id:string)=>orders.filter(order=>order.employeeId===id);
+  const employeeSales=(id:string)=>employeeOrders(id).filter(order=>order.status==='COMPLETED').reduce((sum,order)=>sum+order.total,0);
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this employee?')) return;
-    if (employeesPath) await deleteRecord(employeesPath, id);
-    await updateRecord('users', id, { active: false });
-    if (user?.shopId) await createRecord(`shops/${user.shopId}/auditLogs`, { shopId: user.shopId, actorId: user.id, actorName: user.name, action: 'EMPLOYEE_DISABLED', detail: id, createdAt: new Date().toISOString() });
-  };
+  const saveEmployee=async()=>{if(!employeesPath||!shopId||!user)return;const email=form.email.trim().toLowerCase();if(!form.name.trim()||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||(!editing&&form.password.length<8)){setFormError('Enter a name, valid email and temporary password of at least 8 characters.');return}setSaving(true);setFormError('');try{const branch=branches.find(item=>item.id===form.branchId);let id=editing?.id;if(!id)id=await createManagedUser({email,password:form.password,name:form.name.trim(),role:'EMPLOYEE',shopId,branchId:form.branchId,branchName:branch?.name||'Main Branch',phone:form.phone,shift:form.shift,jobTitle:form.role,permissions:form.permissions});const record={name:form.name.trim(),role:form.role,email,phone:form.phone.trim(),status:editing?.status||'Active',shift:form.shift,shopId,branchId:form.branchId,branchName:branch?.name||'Main Branch',permissions:form.permissions,updatedAt:new Date().toISOString()};if(editing)await updateManagedUser({uid:id,name:record.name,email,jobTitle:record.role,branchId:record.branchId,branchName:record.branchName,phone:record.phone,shift:record.shift,permissions:record.permissions,active:editing.status!=='Inactive'});else await setRecord(employeesPath,id,record);setShowForm(false);setEditing(null);setForm(emptyForm());notify(editing?'Employee account updated.':'Employee account created.')}catch(issue){setFormError(issue instanceof Error?issue.message:'Unable to save employee.')}finally{setSaving(false)}};
+  const editEmployee=(employee:Employee)=>{setEditing(employee);setForm({name:employee.name,role:(['Cashier','Manager','Accountant','Stock Keeper'].includes(employee.role)?employee.role:'Cashier') as EmployeeJobRole,email:employee.email,password:'',phone:employee.phone,shift:employee.shift,branchId:employee.branchId||'main',permissions:normalizePermissions(employee.permissions)});setShowForm(true)};
+  const setActive=async(employee:Employee,active:boolean)=>{if(!window.confirm(`${active?'Reactivate':'Suspend'} ${employee.name}?`))return;await updateManagedUser({uid:employee.id,name:employee.name,email:employee.email,jobTitle:employee.role,branchId:employee.branchId,branchName:employee.branchName,phone:employee.phone,shift:employee.shift,permissions:normalizePermissions(employee.permissions),active});notify(active?'Employee account reactivated.':'Employee account suspended immediately.')};
+  const sendReset=async(employee:Employee)=>{try{await resetPassword(employee.email);if(shopId&&user)await createRecord(`shops/${shopId}/auditLogs`,{shopId,actorId:user.id,actorName:user.name,action:'EMPLOYEE_PASSWORD_RESET_SENT',detail:`${employee.name} (${employee.email})`,createdAt:new Date().toISOString()});notify(`Password reset email sent to ${employee.email}.`)}catch(issue){setFormError(issue instanceof Error?issue.message:'Unable to send password reset email.')}};
+  const changeRole=(role:EmployeeJobRole)=>setForm({...form,role,permissions:{...rolePermissions[role]}});
+  const changePermission=(key:keyof EmployeePermissions,value:boolean)=>setForm({...form,permissions:{...form.permissions,[key]:value,...(key==='view'?{viewOrders:value}:{})}});
+  const exportSales=(employee:Employee)=>downloadCsv(`employee-sales-${employee.name.replace(/\W+/g,'-')}.csv`,[['Date','Order ID','Branch','Status','Payment','Amount MMK'],...employeeOrders(employee.id).map(order=>[order.createdAt,order.id,order.branchName||'Main Branch',order.status,order.paymentKind||order.paymentMethod,order.total])]);
 
-  const handleEdit = (employee: Employee) => {
-    setEditingId(employee.id);
-    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, password: '', phone: employee.phone, shift: employee.shift, branchId: employee.branchId || 'main', permissions: employee.permissions || emptyEmployee.permissions });
-    setShowAddModal(true);
-  };
-
-  const closeModal = () => {
-    setShowAddModal(false);
-    setEditingId(null);
-    setNewEmployee(emptyEmployee);
-  };
-
-  return (
-    <DashboardLayout role="OWNER">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Employees</h1>
-          <p className="text-slate-500">Manage your staff, permissions, and shifts.</p>
-        </div>
-        <Button 
-          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20"
-          onClick={() => setShowAddModal(true)}
-        >
-          <Plus className="w-4 h-4" /> Add Employee
-        </Button>
-      </div>
-
-      <Card className="p-0 overflow-hidden flex flex-col">
-        {error && <p className="p-4 text-sm text-red-600">{error}</p>}
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white">
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 w-80">
-            <Search className="w-4 h-4 text-slate-400 mr-2" />
-            <input 
-              type="text" 
-              placeholder="Search employees by name..." 
-              className="bg-transparent border-none outline-none text-sm w-full text-slate-900"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Employee</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Role & Shift</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {!loading && employees.filter(e => e.name.toLowerCase().includes(search.toLowerCase())).map((employee) => (
-                <tr key={employee.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-bold text-blue-700 text-sm border-2 border-white ring-1 ring-slate-200">
-                        {employee.name.charAt(0)}
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-bold text-slate-900">{employee.name}</div>
-                        <div className="text-xs text-slate-400">ID: {employee.id}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap space-y-1">
-                    <div className="flex items-center text-xs text-slate-600">
-                      <Mail className="w-3.5 h-3.5 mr-2 text-slate-400" /> {employee.email}
-                    </div>
-                    <div className="flex items-center text-xs text-slate-600">
-                      <Phone className="w-3.5 h-3.5 mr-2 text-slate-400" /> {employee.phone}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
-                      <span className="text-sm font-bold text-slate-700">{employee.role}</span>
-                    </div>
-                    <div className="text-xs text-slate-500">Shift: {employee.shift}</div>
-                    <div className="text-xs font-semibold text-blue-600">{employee.branchName || 'Main Branch'}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge 
-                      className={cn(
-                        "px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full",
-                        employee.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 
-                        employee.status === 'Inactive' ? 'bg-red-50 text-red-600' : 
-                        'bg-amber-50 text-amber-600'
-                      )}
-                    >
-                      {employee.status}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 bg-slate-50" onClick={() => handleEdit(employee)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        className="h-8 w-8 p-0 rounded-lg text-red-600 hover:bg-red-50 bg-slate-50"
-                        onClick={() => handleDelete(employee.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">{editingId ? 'Edit Employee' : 'Add New Employee'}</h2>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Full Name</label>
-                <Input 
-                  placeholder="e.g. Min Thein" 
-                  value={newEmployee.name}
-                  onChange={(e) => setNewEmployee({...newEmployee, name: e.target.value})}
-                  className="bg-white border-slate-200"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Role</label>
-                  <select 
-                    className="flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    value={newEmployee.role}
-                    onChange={(e) => setNewEmployee({...newEmployee, role: e.target.value})}
-                  >
-                    <option value="Manager">Manager</option>
-                    <option value="Cashier">Cashier</option>
-                    <option value="Barista">Barista</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Shift</label>
-                  <select 
-                    className="flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                    value={newEmployee.shift}
-                    onChange={(e) => setNewEmployee({...newEmployee, shift: e.target.value})}
-                  >
-                    <option value="Morning">Morning</option>
-                    <option value="Evening">Evening</option>
-                    <option value="Night">Night</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Email</label>
-                <Input 
-                  placeholder="name@ki3.com" 
-                  value={newEmployee.email}
-                  onChange={(e) => setNewEmployee({...newEmployee, email: e.target.value})}
-                  className="bg-white border-slate-200"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Phone</label>
-                <Input 
-                  placeholder="09-..." 
-                  value={newEmployee.phone}
-                  onChange={(e) => setNewEmployee({...newEmployee, phone: e.target.value})}
-                  className="bg-white border-slate-200"
-                />
-              </div>
-              {!editingId && <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Temporary Password</label>
-                <Input type="password" minLength={8} value={newEmployee.password} onChange={(e) => setNewEmployee({...newEmployee, password: e.target.value})} className="bg-white border-slate-200" />
-              </div>}
-              <div><label className="block text-sm font-bold text-slate-700 mb-2">Assigned Branch</label><select value={newEmployee.branchId} onChange={e => setNewEmployee({ ...newEmployee, branchId: e.target.value })} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4">{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Permissions</label>
-                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3">
-                  {([['discount', 'Give discounts'], ['refund', 'Process refunds'], ['editStock', 'Adjust stock'], ['viewOrders', 'View orders']] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={newEmployee.permissions[key]} onChange={e => setNewEmployee({ ...newEmployee, permissions: { ...newEmployee.permissions, [key]: e.target.checked } })} />{label}</label>)}
-                </div>
-              </div>
-            </div>
-
-            {formError && <p className="px-6 pb-3 text-sm text-red-600">{formError}</p>}
-
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
-              <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={closeModal}>
-                Cancel
-              </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddEmployee} disabled={saving || !newEmployee.name.trim() || !newEmployee.email.trim() || (!editingId && newEmployee.password.length < 8)}>
-                {saving ? 'Saving…' : editingId ? 'Update Employee' : 'Add Employee'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </DashboardLayout>
-  );
+  return <DashboardLayout role="OWNER"><div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-8"><div><h1 className="text-3xl font-bold tracking-tight">Employee Management</h1><p className="text-slate-500 mt-2">Accounts, roles, granular permissions, performance and activity.</p></div><Button className="bg-blue-600 text-white" onClick={()=>{setEditing(null);setForm(emptyForm());setShowForm(true)}}><Plus className="w-4 h-4 mr-2"/>Create Employee</Button></div>
+  {message&&<p className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{message}</p>}{formError&&!showForm&&<p className="mb-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{formError}</p>}
+  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">{(['Cashier','Manager','Accountant','Stock Keeper'] as EmployeeJobRole[]).map(role=><div key={role} className="rounded-2xl border bg-white p-4"><p className="text-xs uppercase font-bold text-slate-400">{role}s</p><p className="text-2xl font-black mt-1">{employees.filter(item=>item.role===role&&item.status==='Active').length}</p></div>)}</div>
+  <Card className="p-0 overflow-hidden"><div className="p-4 border-b flex flex-wrap gap-3"><div className="flex items-center bg-slate-50 border rounded-xl px-3 flex-1 min-w-64"><Search className="w-4 h-4 text-slate-400 mr-2"/><input className="h-11 bg-transparent outline-none w-full text-sm" placeholder="Search employee, email or phone…" value={search} onChange={event=>setSearch(event.target.value)}/></div><select className="control" value={roleFilter} onChange={event=>setRoleFilter(event.target.value)}><option value="ALL">All roles</option>{Object.keys(rolePermissions).map(role=><option key={role}>{role}</option>)}</select><select className="control" value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="ALL">All statuses</option><option>Active</option><option>Inactive</option><option>On Leave</option></select></div><div className="overflow-x-auto"><table className="w-full text-left min-w-[1100px]"><thead><tr className="bg-slate-50 border-b">{['Employee','Contact','Role / Branch','Permissions','Sales','Status','Actions'].map(label=><th key={label} className="px-4 py-4 text-xs uppercase text-slate-500">{label}</th>)}</tr></thead><tbody className="divide-y"><TableStateRow columns={7} loading={loading} error={error} empty={!loading&&filtered.length===0} emptyMessage="No employees match the selected filters."/>{filtered.map(employee=><tr key={employee.id} className="hover:bg-slate-50"><td className="px-4 py-4"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 grid place-items-center font-bold">{employee.name.slice(0,1).toUpperCase()}</div><div><p className="font-bold">{employee.name}</p><p className="text-xs text-slate-400">{employee.id}</p></div></div></td><td className="px-4 py-4 text-xs"><p className="flex gap-2"><Mail className="w-3"/>{employee.email}</p><p className="flex gap-2 mt-1"><Phone className="w-3"/>{employee.phone||'—'}</p></td><td className="px-4 py-4"><p className="font-bold flex gap-2"><ShieldCheck className="w-4 text-indigo-500"/>{employee.role}</p><p className="text-xs text-blue-600 mt-1">{employee.branchName||'Main Branch'} · {employee.shift}</p></td><td className="px-4 py-4"><p className="text-xs text-slate-500 max-w-52">{permissionLabels.filter(([key])=>normalizePermissions(employee.permissions)[key]).map(([,label])=>label).join(', ')||'No actions'}</p></td><td className="px-4 py-4"><p className="font-bold">{formatCurrency(employeeSales(employee.id))}</p><p className="text-xs text-slate-400">{employeeOrders(employee.id).length} orders</p></td><td className="px-4 py-4"><Badge variant={employee.status==='Active'?'success':employee.status==='Inactive'?'danger':'warning'}>{employee.status}</Badge></td><td className="px-4 py-4"><div className="flex gap-1"><IconButton title="View sales & activity" click={()=>setDetails(employee)}><Activity/></IconButton><IconButton title="Edit" click={()=>editEmployee(employee)}><Edit/></IconButton><IconButton title="Reset password" click={()=>sendReset(employee)}><KeyRound/></IconButton><IconButton title={employee.status==='Inactive'?'Reactivate':'Suspend'} click={()=>setActive(employee,employee.status==='Inactive')} danger={employee.status!=='Inactive'}><Power/></IconButton></div></td></tr>)}</tbody></table></div></Card>
+  {showForm&&<Modal title={editing?'Edit Employee':'Create Employee'} close={()=>setShowForm(false)} wide><div className="grid md:grid-cols-2 gap-4"><Field label="Full Name"><Input value={form.name} onChange={event=>setForm({...form,name:event.target.value})}/></Field><Field label="Role Preset"><select className="control w-full" value={form.role} onChange={event=>changeRole(event.target.value as EmployeeJobRole)}>{Object.keys(rolePermissions).map(role=><option key={role}>{role}</option>)}</select></Field><Field label="Email"><Input type="email" disabled={Boolean(editing)} value={form.email} onChange={event=>setForm({...form,email:event.target.value})}/></Field><Field label="Phone"><Input value={form.phone} onChange={event=>setForm({...form,phone:event.target.value})}/></Field>{!editing&&<Field label="Temporary Password"><Input type="password" minLength={8} value={form.password} onChange={event=>setForm({...form,password:event.target.value})}/></Field>}<Field label="Shift"><select className="control w-full" value={form.shift} onChange={event=>setForm({...form,shift:event.target.value})}><option>Morning</option><option>Evening</option><option>Night</option></select></Field><Field label="Assigned Branch"><select className="control w-full" value={form.branchId} onChange={event=>setForm({...form,branchId:event.target.value})}>{branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></Field></div><h3 className="font-bold mt-6 mb-3">Action Permissions</h3><div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2">{permissionLabels.map(([permissionKey,label])=><React.Fragment key={String(permissionKey)}><Permission label={label} checked={form.permissions[permissionKey]} set={value=>changePermission(permissionKey,value)}/></React.Fragment>)}</div><h3 className="font-bold mt-6 mb-3">Operational Access</h3><div className="grid sm:grid-cols-2 gap-2"><Permission label="Adjust inventory stock" checked={form.permissions.editStock} set={value=>changePermission('editStock',value)}/><Permission label="Record expenses" checked={form.permissions.recordExpenses} set={value=>changePermission('recordExpenses',value)}/></div>{formError&&<p className="mt-4 text-sm text-red-600">{formError}</p>}<Button className="w-full mt-6 bg-blue-600 text-white" disabled={saving} onClick={saveEmployee}>{saving?'Saving…':editing?'Update Employee':'Create Account'}</Button></Modal>}
+  {details&&<Modal title={`${details.name} · Performance`} close={()=>setDetails(null)} wide><div className="grid sm:grid-cols-3 gap-3"><Stat label="Completed Sales" value={formatCurrency(employeeSales(details.id))}/><Stat label="All Orders" value={String(employeeOrders(details.id).length)}/><Stat label="Activity Events" value={String(logs.filter(log=>log.actorId===details.id).length)}/></div><div className="flex justify-between items-center mt-6"><h3 className="font-bold">Recent Sales</h3><Button variant="outline" className="h-9" onClick={()=>exportSales(details)}><Download className="w-4 h-4 mr-2"/>Export CSV</Button></div><div className="max-h-56 overflow-auto mt-2 divide-y">{employeeOrders(details.id).slice(0,12).map(order=><div key={order.id} className="py-3 flex justify-between text-sm"><span>{new Date(order.createdAt).toLocaleString()} · {order.branchName||'Main Branch'} · {order.status}</span><b>{formatCurrency(order.total)}</b></div>)}{employeeOrders(details.id).length===0&&<p className="text-sm text-slate-400 py-4">No sales recorded.</p>}</div><h3 className="font-bold mt-6">Activity Logs</h3><div className="max-h-56 overflow-auto mt-2 divide-y">{logs.filter(log=>log.actorId===details.id).slice(0,15).map(log=><div key={log.id} className="py-3"><p className="text-sm font-bold">{log.action}</p><p className="text-xs text-slate-400">{log.detail} · {new Date(log.createdAt).toLocaleString()}</p></div>)}{!logs.some(log=>log.actorId===details.id)&&<p className="text-sm text-slate-400 py-4">No activity recorded.</p>}</div></Modal>}
+  </DashboardLayout>;
 }
+
+function Modal({title,close,children,wide=false}:{title:string;close():void;children:React.ReactNode;wide?:boolean}){return <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4"><div className={cn('bg-white rounded-3xl w-full max-h-[92vh] overflow-auto',wide?'max-w-3xl':'max-w-xl')}><div className="sticky top-0 z-10 bg-slate-50 border-b p-5 flex justify-between"><h2 className="text-xl font-bold">{title}</h2><button onClick={close}><X/></button></div><div className="p-6">{children}</div></div></div>}
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="block"><span className="block text-sm font-bold mb-2">{label}</span>{children}</label>}
+function Permission({label,checked,set}:{label:string;checked:boolean;set(value:boolean):void}){return <label className="flex items-center justify-between rounded-xl bg-slate-50 p-3 text-sm font-semibold"><span>{label}</span><input type="checkbox" checked={checked} onChange={event=>set(event.target.checked)} className="w-5 h-5 accent-blue-600"/></label>}
+function IconButton({title,click,children,danger=false}:{title:string;click():void;children:React.ReactElement;danger?:boolean}){return <button title={title} onClick={click} className={cn('w-9 h-9 rounded-lg grid place-items-center bg-slate-100',danger?'text-red-600 hover:bg-red-50':'text-slate-600 hover:text-blue-600 hover:bg-blue-50')}>{React.cloneElement(children,{className:'w-4 h-4'} as React.HTMLAttributes<HTMLElement>)}</button>}
+function Stat({label,value}:{label:string;value:string}){return <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs uppercase font-bold text-slate-400">{label}</p><p className="text-xl font-black mt-1">{value}</p></div>}

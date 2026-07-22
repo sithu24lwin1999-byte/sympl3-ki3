@@ -1,338 +1,55 @@
 import React, { useState } from 'react';
+import JsBarcode from 'jsbarcode';
+import { Barcode, Boxes, Edit, History, Image as ImageIcon, PackagePlus, Plus, Power, Printer, Search, SlidersHorizontal, X } from 'lucide-react';
 import DashboardLayout from '@/layouts/DashboardLayout';
-import { Card, Button, Badge, Input } from '@/components/ui';
-import { Search, Plus, Filter, Edit, Trash2, X, Image as ImageIcon } from 'lucide-react';
-import { formatCurrency, cn } from '@/lib/utils';
+import { Badge, Button, Card, DataState, Input, TableStateRow } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
-import { createRecord, deleteRecord, setRecord, useLiveCollection } from '@/lib/firestore';
-import type { Product } from '@/types';
+import { adjustInventoryStock, createRecord, receivePurchase, saveInventoryProduct, setRecord, useLiveCollection } from '@/lib/firestore';
+import { cn, formatCurrency } from '@/lib/utils';
+import type { Product, StockMovement, Supplier } from '@/types';
 
-export default function OwnerInventory() {
-  const { user } = useAuth();
-  const inventoryPath = user?.shopId ? `shops/${user.shopId}/products` : null;
-  const [search, setSearch] = useState('');
-  const { data: products, loading, error } = useLiveCollection<Product>(inventoryPath);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const emptyItem = { name: '', sku: '', barcode: '', category: 'General', price: '', cost: '', stock: '', minStock: '10', image: '', itemType: 'PRODUCT' as 'PRODUCT' | 'SERVICE', trackStock: true };
-  const [newProduct, setNewProduct] = useState(emptyItem);
+type FormState = ReturnType<typeof emptyForm>;
+const emptyForm = () => ({ name:'',image:'',sku:'',barcode:'',category:'General',brand:'',unit:'pcs',supplierId:'',cost:'',price:'',discount:'0',tax:'0',onlinePrice:'',inStorePrice:'',stock:'0',minStock:'10',maxStock:'',variants:'',description:'',itemType:'PRODUCT' as 'PRODUCT'|'SERVICE',trackStock:true,active:true,availableOnline:true,availableInStore:true });
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewProduct(prev => ({ ...prev, image: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
+export default function OwnerInventory(){
+  const { user }=useAuth(); const shopId=user?.shopId;
+  const {data:products,loading,error}=useLiveCollection<Product>(shopId?`shops/${shopId}/products`:null);
+  const {data:movements,loading:movementsLoading,error:movementsError}=useLiveCollection<StockMovement>(shopId?`shops/${shopId}/stockMovements`:null,'createdAt');
+  const {data:suppliers}=useLiveCollection<Supplier>(shopId?`shops/${shopId}/suppliers`:null,'createdAt');
+  const [tab,setTab]=useState<'PRODUCTS'|'MOVEMENTS'|'PURCHASES'>('PRODUCTS'); const [search,setSearch]=useState(''); const [category,setCategory]=useState('All'); const [filter,setFilter]=useState('ALL');
+  const [showProduct,setShowProduct]=useState(false); const [editing,setEditing]=useState<Product|null>(null); const [form,setForm]=useState<FormState>(emptyForm());
+  const [stockProduct,setStockProduct]=useState<Product|null>(null); const [stockForm,setStockForm]=useState({mode:'STOCK_IN' as 'STOCK_IN'|'STOCK_OUT'|'ADJUSTMENT'|'COUNT',quantity:'',reason:''});
+  const [purchase,setPurchase]=useState({productId:'',supplierId:'',quantity:'',unitCost:'',reason:'Purchase receiving'}); const [busy,setBusy]=useState(false); const [message,setMessage]=useState(''); const [operationError,setOperationError]=useState('');
+  const notify=(text:string)=>{setMessage(text);window.setTimeout(()=>setMessage(''),4000)};
+  const stockStatus=(product:Product)=>product.active===false?'INACTIVE':product.stock<=0?'OUT':product.stock<=product.minStock?'LOW':'IN';
+  const filtered=products.filter(product=>(category==='All'||product.category===category)&&(filter==='ALL'||stockStatus(product)===filter)&&`${product.name} ${product.sku} ${product.barcode||''} ${product.brand||''}`.toLowerCase().includes(search.toLowerCase()));
 
-  const handleAddProduct = async () => {
-    if (!newProduct.name) return;
-    const stock = parseInt(newProduct.stock) || 0;
-    const p = {
-      name: newProduct.name,
-      sku: newProduct.sku,
-      barcode: newProduct.barcode,
-      category: newProduct.category,
-      price: parseFloat(newProduct.price) || 0,
-      cost: parseFloat(newProduct.cost) || 0,
-      stock: stock,
-      minStock: parseInt(newProduct.minStock) || 0,
-      status: newProduct.itemType === 'SERVICE' || !newProduct.trackStock ? 'In Stock' : stock > (parseInt(newProduct.minStock) || 0) ? 'In Stock' : stock > 0 ? 'Low Stock' : 'Out of Stock',
-      image: newProduct.image || 'https://images.unsplash.com/photo-1511920170033-f8396924c348?w=100&h=100&fit=crop',
-      shopId: user!.shopId!,
-      itemType: newProduct.itemType,
-      trackStock: newProduct.itemType === 'SERVICE' ? false : newProduct.trackStock,
-      updatedAt: new Date().toISOString(),
-    };
-    if (!inventoryPath) return;
-    const now = new Date().toISOString();
-    let productId = editingId || '';
-    if (editingId) {
-      const previous = products.find(item => item.id === editingId);
-      await setRecord(inventoryPath, editingId, p);
-      const difference = stock - (previous?.stock || 0);
-      if (difference && p.trackStock) await createRecord(`shops/${user!.shopId}/stockMovements`, { shopId: user!.shopId, productId: editingId, productName: p.name, type: 'ADJUSTMENT', quantity: difference, balance: stock, note: 'Manual inventory edit', createdAt: now });
-    } else {
-      const created = await createRecord(inventoryPath, { ...p, createdAt: now }); productId = created.id;
-      if (stock > 0 && p.trackStock) await createRecord(`shops/${user!.shopId}/stockMovements`, { shopId: user!.shopId, productId, productName: p.name, type: 'ADJUSTMENT', quantity: stock, balance: stock, note: 'Opening stock', createdAt: now });
-    }
-    await createRecord(`shops/${user!.shopId}/auditLogs`, { shopId: user!.shopId, actorId: user!.id, actorName: user!.name, action: editingId ? 'ITEM_UPDATED' : 'ITEM_CREATED', detail: p.name, createdAt: now });
-    setShowAddModal(false);
-    setEditingId(null);
-    setNewProduct(emptyItem);
-  };
+  const uploadImage=(event:React.ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>setForm(current=>({...current,image:String(reader.result||'')}));reader.readAsDataURL(file)};
+  const supplierName=(id:string)=>suppliers.find(item=>item.id===id)?.name||'';
+  const productValue=()=>({name:form.name.trim(),image:form.image,sku:form.sku.trim(),barcode:form.barcode.trim(),category:form.category.trim()||'General',brand:form.brand.trim(),unit:form.unit.trim()||'pcs',supplierId:form.supplierId,supplierName:supplierName(form.supplierId),cost:Number(form.cost)||0,price:Number(form.price)||0,discount:Number(form.discount)||0,tax:Number(form.tax)||0,onlinePrice:Number(form.onlinePrice)||Number(form.price)||0,inStorePrice:Number(form.inStorePrice)||Number(form.price)||0,stock:Number(form.stock)||0,minStock:Number(form.minStock)||0,maxStock:form.maxStock===''?undefined:Number(form.maxStock),variants:form.variants.split(',').map(name=>name.trim()).filter(Boolean).map((name,index)=>({id:`v${index+1}`,name})),description:form.description.trim(),active:form.active,availableOnline:form.availableOnline,availableInStore:form.availableInStore,itemType:form.itemType,trackStock:form.itemType==='SERVICE'?false:form.trackStock});
+  const saveProduct=async()=>{if(!shopId||!user||!form.name.trim())return;const duplicate=products.find(item=>item.id!==editing?.id&&((form.sku.trim()&&item.sku===form.sku.trim())||(form.barcode.trim()&&item.barcode===form.barcode.trim())));if(duplicate){setOperationError(`SKU or barcode is already used by ${duplicate.name}.`);return}setBusy(true);setOperationError('');try{const value=productValue();const id=await saveInventoryProduct(shopId,value,{id:user.id,name:user.name},editing?.id);await createRecord(`shops/${shopId}/auditLogs`,{shopId,actorId:user.id,actorName:user.name,action:editing?'PRODUCT_UPDATED':'PRODUCT_CREATED',detail:`${value.name} (${id})`,createdAt:new Date().toISOString()});setShowProduct(false);setEditing(null);setForm(emptyForm());notify(editing?'Product updated.':'Product and opening-stock transaction saved.')}catch(issue){setOperationError(issue instanceof Error?issue.message:'Unable to save product.')}finally{setBusy(false)}};
+  const editProduct=(product:Product)=>{setEditing(product);setForm({name:product.name,image:product.image||'',sku:product.sku,barcode:product.barcode||'',category:product.category,brand:product.brand||'',unit:product.unit||'pcs',supplierId:product.supplierId||'',cost:String(product.cost),price:String(product.price),discount:String(product.discount||0),tax:String(product.tax||0),onlinePrice:String(product.onlinePrice??product.price),inStorePrice:String(product.inStorePrice??product.price),stock:String(product.stock),minStock:String(product.minStock),maxStock:product.maxStock===undefined?'':String(product.maxStock),variants:(product.variants||[]).map(item=>item.name).join(', '),description:product.description||'',itemType:product.itemType||'PRODUCT',trackStock:product.trackStock!==false,active:product.active!==false,availableOnline:product.availableOnline!==false,availableInStore:product.availableInStore!==false});setShowProduct(true)};
+  const toggleProduct=async(product:Product)=>{if(!shopId)return;await setRecord(`shops/${shopId}/products`,product.id,{active:product.active===false,availableOnline:product.active===false?product.availableOnline:false,availableInStore:product.active===false?product.availableInStore:false,updatedAt:new Date().toISOString()});notify(product.active===false?'Product activated.':'Product deactivated. Stock history was retained.')};
+  const saveStock=async()=>{if(!shopId||!user||!stockProduct)return;const quantity=Number(stockForm.quantity);if(!Number.isFinite(quantity)||stockForm.mode!=='ADJUSTMENT'&&quantity<=0||!stockForm.reason.trim()){setOperationError('Enter a valid quantity and adjustment reason.');return}setBusy(true);try{await adjustInventoryStock(shopId,stockProduct.id,{mode:stockForm.mode,quantity,reason:stockForm.reason.trim(),actorId:user.id,actorName:user.name});setStockProduct(null);setStockForm({mode:'STOCK_IN',quantity:'',reason:''});notify('Stock and inventory transaction saved atomically.')}catch(issue){setOperationError(issue instanceof Error?issue.message:'Unable to adjust stock.')}finally{setBusy(false)}};
+  const receive=async()=>{if(!shopId||!user)return;const product=products.find(item=>item.id===purchase.productId);const supplier=suppliers.find(item=>item.id===purchase.supplierId);if(!product||!supplier||Number(purchase.quantity)<=0||Number(purchase.unitCost)<0){setOperationError('Select a product and supplier, then enter a valid quantity and cost.');return}setBusy(true);try{await receivePurchase(shopId,{productId:product.id,productName:product.name,supplierId:supplier.id,supplierName:supplier.name,quantity:Number(purchase.quantity),unitCost:Number(purchase.unitCost),reason:purchase.reason||'Purchase receiving',actorId:user.id,actorName:user.name,createdAt:new Date().toISOString()});setPurchase({productId:'',supplierId:'',quantity:'',unitCost:'',reason:'Purchase receiving'});notify('Purchase, stock balance and movement history saved.')}catch(issue){setOperationError(issue instanceof Error?issue.message:'Unable to receive purchase.')}finally{setBusy(false)}};
+  const generateBarcode=()=>setForm(current=>({...current,barcode:`KI3${Date.now().toString().slice(-10)}`}));
+  const printBarcode=(product:Product)=>{const value=product.barcode||product.sku;if(!value){setOperationError('Add a barcode or SKU before printing.');return}const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');JsBarcode(svg,value,{format:'CODE128',displayValue:true,text:`${product.name} · ${value}`,margin:16});const popup=window.open('','_blank','width=700,height=500');if(!popup)return;popup.document.write(`<html><head><title>${product.name} Barcode</title><style>body{font-family:sans-serif;text-align:center;padding:32px}svg{max-width:100%}</style></head><body>${svg.outerHTML}<p>${formatCurrency(product.price)}</p><script>window.onload=()=>window.print()<\/script></body></html>`);popup.document.close()};
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this product?')) return;
-    const product = products.find(item => item.id === id);
-    if (inventoryPath) await deleteRecord(inventoryPath, id);
-    if (user?.shopId) await createRecord(`shops/${user.shopId}/auditLogs`, { shopId: user.shopId, actorId: user.id, actorName: user.name, action: 'ITEM_DELETED', detail: product?.name || id, createdAt: new Date().toISOString() });
-  };
-
-  const handleEdit = (product: Product) => {
-    setEditingId(product.id);
-    setNewProduct({
-      name: product.name, sku: product.sku, barcode: product.barcode || '', category: product.category,
-      price: String(product.price), cost: String(product.cost), stock: String(product.stock), minStock: String(product.minStock), image: product.image,
-      itemType: product.itemType || 'PRODUCT', trackStock: product.trackStock !== false,
-    });
-    setShowAddModal(true);
-  };
-
-  const closeModal = () => {
-    setShowAddModal(false);
-    setEditingId(null);
-    setNewProduct(emptyItem);
-  };
-
-  const filteredProducts = products.filter(p =>
-    (categoryFilter === 'All' || p.category === categoryFilter) &&
-    (statusFilter === 'All' || p.status === statusFilter) &&
-    (`${p.name} ${p.sku} ${p.barcode || ''}`.toLowerCase().includes(search.toLowerCase()))
-  );
-
-  return (
-    <DashboardLayout role="OWNER">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Products & Services</h1>
-          <p className="text-slate-500">Manage retail products, food items, fashion stock and service items.</p>
-        </div>
-        <Button 
-          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20"
-          onClick={() => setShowAddModal(true)}
-        >
-          <Plus className="w-4 h-4" /> Add Item
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Products</p>
-            <p className="text-xl font-black text-slate-900 mt-1">{products.length}</p>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm">
-          <div>
-            <p className="text-xs font-bold text-emerald-500 uppercase tracking-wider">In Stock</p>
-            <p className="text-xl font-black text-slate-900 mt-1">{products.filter(p => p.stock > 10).length}</p>
-          </div>
-        </div>
-        <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-amber-600 uppercase tracking-wider">Low Stock</p>
-            <p className="text-xl font-black text-amber-700 mt-1">{products.filter(p => p.stock > 0 && p.stock <= 10).length}</p>
-          </div>
-        </div>
-        <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-red-600 uppercase tracking-wider">Out of Stock</p>
-            <p className="text-xl font-black text-red-700 mt-1">{products.filter(p => p.stock === 0).length}</p>
-          </div>
-        </div>
-      </div>
-
-      <Card className="p-0 overflow-hidden flex flex-col">
-        {error && <p className="p-4 text-sm text-red-600">{error}</p>}
-        <div className="p-4 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between bg-white">
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 w-full md:w-80">
-            <Search className="w-4 h-4 text-slate-400 mr-2" />
-            <input 
-              type="text" 
-            placeholder="Search name, SKU or barcode..."
-              className="bg-transparent border-none outline-none text-sm w-full text-slate-900"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2">
-            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 outline-none">
-              <option>All</option>{Array.from(new Set(products.map(product => product.category))).map(category => <option key={category}>{category}</option>)}
-            </select>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-11 rounded-2xl border-2 border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 outline-none">
-              <option>All</option><option>In Stock</option><option>Low Stock</option><option>Out of Stock</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Product</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">SKU & Category</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Price / Cost</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Stock</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {!loading && filteredProducts.map((product) => (
-                <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <img src={product.image} alt={product.name} className="w-12 h-12 rounded-lg object-cover border border-slate-200" />
-                      <div className="ml-4">
-                        <div className="text-sm font-bold text-slate-900">{product.name}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-slate-900">{product.sku}</div>
-                    <div className="text-xs text-slate-500">{product.category}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-bold text-blue-600">{formatCurrency(product.price)}</div>
-                    <div className="text-xs text-slate-500">Cost: {formatCurrency(product.cost)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-bold text-slate-700">{product.itemType === 'SERVICE' || product.trackStock === false ? 'Not tracked' : `${product.stock} units`}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge 
-                      className={cn(
-                        "px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full",
-                        product.status === 'In Stock' ? 'bg-emerald-50 text-emerald-600' : 
-                        product.status === 'Out of Stock' ? 'bg-red-50 text-red-600' : 
-                        'bg-amber-50 text-amber-600'
-                      )}
-                    >
-                      {product.status}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 bg-slate-50" onClick={() => handleEdit(product)}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        className="h-8 w-8 p-0 rounded-lg text-red-600 hover:bg-red-50 bg-slate-50"
-                        onClick={() => handleDelete(product.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      
-      {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">{editingId ? 'Edit Item' : 'Add Product or Service'}</h2>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 mb-2 relative group overflow-hidden">
-                {newProduct.image ? (
-                  <img src={newProduct.image} alt="Preview" className="w-full h-32 object-cover rounded-xl" />
-                ) : (
-                  <>
-                    <ImageIcon className="w-8 h-8 text-slate-400 mb-2" />
-                    <p className="text-sm font-bold text-slate-500">Upload Product Photo</p>
-                    <p className="text-xs text-slate-400">Click to browse (JPG, PNG)</p>
-                  </>
-                )}
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  onChange={handleImageUpload}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Item Type</label>
-                <select className="flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4" value={newProduct.itemType} onChange={e => setNewProduct({ ...newProduct, itemType: e.target.value as 'PRODUCT' | 'SERVICE', trackStock: e.target.value !== 'SERVICE' })}><option value="PRODUCT">Physical Product / Food</option><option value="SERVICE">Service</option></select>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Product Name</label>
-                <Input 
-                  placeholder="e.g. Caramel Macchiato" 
-                  value={newProduct.name}
-                  onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
-                  className="bg-white border-slate-200"
-                />
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">SKU</label>
-                  <Input 
-                    placeholder="BEV-003" 
-                    value={newProduct.sku}
-                    onChange={(e) => setNewProduct({...newProduct, sku: e.target.value})}
-                    className="bg-white border-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Barcode</label>
-                  <Input placeholder="Scan / type" value={newProduct.barcode} onChange={e => setNewProduct({ ...newProduct, barcode: e.target.value })} className="bg-white border-slate-200" />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Category</label>
-                  <Input placeholder="Food, Clothing, Service..." value={newProduct.category} onChange={e => setNewProduct({...newProduct, category: e.target.value})} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Price</label>
-                  <Input 
-                    placeholder="0" type="number"
-                    value={newProduct.price}
-                    onChange={(e) => setNewProduct({...newProduct, price: e.target.value})}
-                    className="bg-white border-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Cost</label>
-                  <Input 
-                    placeholder="0" type="number"
-                    value={newProduct.cost}
-                    onChange={(e) => setNewProduct({...newProduct, cost: e.target.value})}
-                    className="bg-white border-slate-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Stock</label>
-                  <Input 
-                    placeholder="0" type="number"
-                    value={newProduct.stock}
-                    onChange={(e) => setNewProduct({...newProduct, stock: e.target.value})}
-                    disabled={newProduct.itemType === 'SERVICE' || !newProduct.trackStock}
-                    className="bg-white border-slate-200"
-                  />
-                </div>
-                <div><label className="block text-sm font-bold text-slate-700 mb-2">Low stock alert</label><Input type="number" min="0" value={newProduct.minStock} onChange={e => setNewProduct({ ...newProduct, minStock: e.target.value })} disabled={newProduct.itemType === 'SERVICE' || !newProduct.trackStock} /></div>
-              </div>
-              {newProduct.itemType === 'PRODUCT' && <label className="flex items-center gap-3 text-sm font-bold"><input type="checkbox" checked={newProduct.trackStock} onChange={e => setNewProduct({ ...newProduct, trackStock: e.target.checked })} /> Track stock for this item</label>}
-            </div>
-
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
-              <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={closeModal}>
-                Cancel
-              </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleAddProduct} disabled={!newProduct.name.trim()}>
-                {editingId ? 'Update Product' : 'Save Product'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </DashboardLayout>
-  );
+  return <DashboardLayout role="OWNER"><div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-7"><div><h1 className="text-3xl font-bold tracking-tight">Products & Inventory</h1><p className="text-slate-500 mt-2">Product catalog, traceable stock control and purchase receiving.</p></div><Button className="bg-blue-600 text-white" onClick={()=>{setEditing(null);setForm(emptyForm());setShowProduct(true)}}><Plus className="w-4 h-4 mr-2"/>Add Product</Button></div>
+  {message&&<p className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{message}</p>}{operationError&&<p className="mb-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{operationError}</p>}
+  <div className="flex gap-2 mb-6 overflow-x-auto">{([['PRODUCTS','Products',Boxes],['MOVEMENTS','Stock Movement History',History],['PURCHASES','Purchase Receiving',PackagePlus]] as const).map(([value,label,Icon])=><button key={value} onClick={()=>setTab(value)} className={cn('shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2',tab===value?'bg-blue-600 text-white':'bg-white border text-slate-600')}><Icon className="w-4 h-4"/>{label}</button>)}</div>
+  {tab==='PRODUCTS'&&<><div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">{[['All Products',products.length,'text-slate-900'],['In Stock',products.filter(x=>stockStatus(x)==='IN').length,'text-emerald-600'],['Low Stock',products.filter(x=>stockStatus(x)==='LOW').length,'text-amber-600'],['Out of Stock',products.filter(x=>stockStatus(x)==='OUT').length,'text-red-600'],['Inactive',products.filter(x=>stockStatus(x)==='INACTIVE').length,'text-slate-500']].map(([label,value,color])=><div key={String(label)} className="bg-white rounded-2xl border p-4"><p className="text-xs uppercase font-bold text-slate-400">{label}</p><p className={cn('text-2xl font-black mt-1',String(color))}>{value}</p></div>)}</div>
+  <Card className="p-0 overflow-hidden"><div className="p-4 border-b flex flex-wrap gap-3"><div className="flex items-center bg-slate-50 border rounded-xl px-3 flex-1 min-w-64"><Search className="w-4 h-4 text-slate-400 mr-2"/><input className="h-11 bg-transparent outline-none w-full text-sm" placeholder="Search name, SKU, barcode or brand…" value={search} onChange={e=>setSearch(e.target.value)}/></div><select className="control" value={category} onChange={e=>setCategory(e.target.value)}><option>All</option>{[...new Set(products.map(x=>x.category))].map(x=><option key={x}>{x}</option>)}</select><select className="control" value={filter} onChange={e=>setFilter(e.target.value)}><option value="ALL">All products</option><option value="IN">In stock</option><option value="LOW">Low stock</option><option value="OUT">Out of stock</option><option value="INACTIVE">Inactive products</option></select></div><div className="overflow-x-auto"><table className="w-full text-left min-w-[1100px]"><thead><tr className="bg-slate-50 border-b">{['Product','SKU / Barcode','Category / Brand','Prices','Stock','Availability','Actions'].map(x=><th key={x} className="px-4 py-4 text-xs uppercase text-slate-500">{x}</th>)}</tr></thead><tbody className="divide-y"><TableStateRow columns={7} loading={loading} error={error} empty={!loading&&filtered.length===0} emptyMessage="No products match the selected filters."/>{filtered.map(product=><tr key={product.id} className="hover:bg-slate-50"><td className="px-4 py-4"><div className="flex items-center gap-3"><div className="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden">{product.image?<img src={product.image} className="w-full h-full object-cover"/>:<ImageIcon className="m-3 text-slate-400"/>}</div><div><p className="font-bold">{product.name}</p><p className="text-xs text-slate-400">{product.unit||'pcs'} · {(product.variants||[]).length} variants</p></div></div></td><td className="px-4 py-4 text-sm"><p>{product.sku||'—'}</p><p className="text-xs text-slate-400">{product.barcode||'No barcode'}</p></td><td className="px-4 py-4 text-sm"><p>{product.category}</p><p className="text-xs text-slate-400">{product.brand||'No brand'}</p></td><td className="px-4 py-4 text-sm"><p className="font-bold text-blue-600">{formatCurrency(product.price)}</p><p className="text-xs text-slate-400">Cost {formatCurrency(product.cost)}</p></td><td className="px-4 py-4"><p className="font-bold">{product.trackStock===false||product.itemType==='SERVICE'?'Not tracked':`${product.stock} ${product.unit||'pcs'}`}</p><Badge variant={stockStatus(product)==='IN'?'success':stockStatus(product)==='OUT'?'danger':'warning'}>{stockStatus(product)==='INACTIVE'?'INACTIVE':product.status}</Badge></td><td className="px-4 py-4 text-xs"><p>{product.availableOnline!==false?'✓ Online':'— Online'}</p><p>{product.availableInStore!==false?'✓ In-store':'— In-store'}</p></td><td className="px-4 py-4"><div className="flex gap-1"><IconButton title="Stock action" onClick={()=>{setStockProduct(product);setStockForm({mode:'STOCK_IN',quantity:'',reason:''})}}><SlidersHorizontal/></IconButton><IconButton title="Edit" onClick={()=>editProduct(product)}><Edit/></IconButton><IconButton title="Print barcode" onClick={()=>printBarcode(product)}><Printer/></IconButton><IconButton title={product.active===false?'Activate':'Deactivate'} onClick={()=>toggleProduct(product)}><Power/></IconButton></div></td></tr>)}</tbody></table></div></Card></>}
+  {tab==='MOVEMENTS'&&<Card className="p-0 overflow-hidden"><div className="p-5 flex justify-between"><div><h3 className="font-bold">Immutable Stock Movement History</h3><p className="text-xs text-slate-400 mt-1">Sales, returns, purchases, counts and adjustments.</p></div></div><div className="overflow-x-auto"><table className="w-full text-left min-w-[1000px]"><thead><tr className="bg-slate-50">{['Date','Product','Type','Before','Change','Balance','Reason','Actor / Source'].map(x=><th key={x} className="px-4 py-3 text-xs uppercase text-slate-500">{x}</th>)}</tr></thead><tbody className="divide-y"><TableStateRow columns={8} loading={movementsLoading} error={movementsError} empty={!movementsLoading&&movements.length===0} emptyMessage="No stock movements recorded."/>{movements.map(item=><tr key={item.id}><td className="px-4 py-3 text-xs">{new Date(item.createdAt).toLocaleString()}</td><td className="px-4 py-3 font-bold text-sm">{item.productName}</td><td className="px-4 py-3"><Badge>{item.type}</Badge></td><td className="px-4 py-3">{item.before??item.balance-item.quantity}</td><td className={cn('px-4 py-3 font-bold',item.quantity>0?'text-emerald-600':'text-red-600')}>{item.quantity>0?'+':''}{item.quantity}</td><td className="px-4 py-3 font-bold">{item.balance}</td><td className="px-4 py-3 text-sm">{item.reason||item.note||'—'}</td><td className="px-4 py-3 text-xs">{item.actorName||'System'}<br/><span className="text-slate-400">{item.sourceId||item.orderId||'—'}</span></td></tr>)}</tbody></table></div></Card>}
+  {tab==='PURCHASES'&&<div className="grid lg:grid-cols-3 gap-6"><Card className="lg:col-span-2"><h3 className="font-bold mb-5">Receive Purchase</h3><div className="grid md:grid-cols-2 gap-4"><Field label="Product"><select className="control w-full" value={purchase.productId} onChange={e=>{const product=products.find(x=>x.id===e.target.value);setPurchase({...purchase,productId:e.target.value,unitCost:product?String(product.cost):purchase.unitCost})}}><option value="">Select product</option>{products.filter(x=>x.trackStock!==false&&x.itemType!=='SERVICE').map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field label="Supplier"><select className="control w-full" value={purchase.supplierId} onChange={e=>setPurchase({...purchase,supplierId:e.target.value})}><option value="">Select supplier</option>{suppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field label="Quantity"><Input type="number" min="1" value={purchase.quantity} onChange={e=>setPurchase({...purchase,quantity:e.target.value})}/></Field><Field label="Unit Cost"><Input type="number" min="0" value={purchase.unitCost} onChange={e=>setPurchase({...purchase,unitCost:e.target.value})}/></Field><Field label="Receiving Reason / Reference"><Input value={purchase.reason} onChange={e=>setPurchase({...purchase,reason:e.target.value})}/></Field></div><Button className="mt-5 bg-blue-600 text-white" disabled={busy} onClick={receive}>{busy?'Receiving…':'Receive & Update Stock'}</Button></Card><Card><h3 className="font-bold">Atomic Receiving</h3><p className="text-sm text-slate-500 mt-3">One transaction creates the purchase record, updates stock and cost, and creates the immutable movement history. If any step fails, nothing is written.</p></Card></div>}
+  {showProduct&&<Modal title={editing?'Edit Product':'Add Product'} close={()=>setShowProduct(false)}><div className="space-y-4"><div className="relative h-36 border-2 border-dashed rounded-2xl bg-slate-50 grid place-items-center overflow-hidden">{form.image?<img src={form.image} className="w-full h-full object-cover"/>:<div className="text-center text-slate-400"><ImageIcon className="mx-auto"/><p className="text-xs mt-2">Upload product image</p></div>}<input type="file" accept="image/*" onChange={uploadImage} className="absolute inset-0 opacity-0 cursor-pointer"/></div><Grid><Field label="Product Name"><Input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field><Field label="Item Type"><select className="control w-full" value={form.itemType} onChange={e=>setForm({...form,itemType:e.target.value as 'PRODUCT'|'SERVICE',trackStock:e.target.value!=='SERVICE'})}><option value="PRODUCT">Product</option><option value="SERVICE">Service</option></select></Field><Field label="SKU"><Input value={form.sku} onChange={e=>setForm({...form,sku:e.target.value})}/></Field><Field label="Barcode"><div className="flex gap-2"><Input value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})}/><Button variant="outline" onClick={generateBarcode}><Barcode className="w-4 h-4"/></Button></div></Field><Field label="Category"><Input value={form.category} onChange={e=>setForm({...form,category:e.target.value})}/></Field><Field label="Brand"><Input value={form.brand} onChange={e=>setForm({...form,brand:e.target.value})}/></Field><Field label="Unit"><Input placeholder="pcs, kg, box…" value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></Field><Field label="Supplier"><select className="control w-full" value={form.supplierId} onChange={e=>setForm({...form,supplierId:e.target.value})}><option value="">No supplier</option>{suppliers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><NumberField label="Cost Price" value={form.cost} set={cost=>setForm({...form,cost})}/><NumberField label="Selling Price" value={form.price} set={price=>setForm({...form,price})}/><NumberField label="Discount %" value={form.discount} set={discount=>setForm({...form,discount})}/><NumberField label="Tax %" value={form.tax} set={tax=>setForm({...form,tax})}/><NumberField label="Online Price" value={form.onlinePrice} set={onlinePrice=>setForm({...form,onlinePrice})}/><NumberField label="In-store Price" value={form.inStorePrice} set={inStorePrice=>setForm({...form,inStorePrice})}/>{!editing&&<NumberField label="Opening Stock" value={form.stock} set={stock=>setForm({...form,stock})}/>}<NumberField label="Minimum Stock" value={form.minStock} set={minStock=>setForm({...form,minStock})}/><NumberField label="Maximum Stock" value={form.maxStock} set={maxStock=>setForm({...form,maxStock})}/><Field label="Product Variants"><Input placeholder="Small, Medium, Large" value={form.variants} onChange={e=>setForm({...form,variants:e.target.value})}/></Field></Grid><Field label="Description"><textarea className="w-full min-h-24 rounded-2xl border p-3" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field><div className="grid sm:grid-cols-2 gap-2"><Check label="Active" checked={form.active} set={active=>setForm({...form,active})}/><Check label="Track stock" checked={form.trackStock} set={trackStock=>setForm({...form,trackStock})} disabled={form.itemType==='SERVICE'}/><Check label="Available online" checked={form.availableOnline} set={availableOnline=>setForm({...form,availableOnline})}/><Check label="Available in-store" checked={form.availableInStore} set={availableInStore=>setForm({...form,availableInStore})}/></div><Button className="w-full bg-blue-600 text-white" disabled={busy||!form.name.trim()} onClick={saveProduct}>{busy?'Saving…':editing?'Update Product':'Create Product'}</Button></div></Modal>}
+  {stockProduct&&<Modal title={`Stock Action · ${stockProduct.name}`} close={()=>setStockProduct(null)}><div className="space-y-4"><p className="rounded-xl bg-slate-50 p-3 text-sm">Current stock: <b>{stockProduct.stock} {stockProduct.unit||'pcs'}</b></p><Field label="Action"><select className="control w-full" value={stockForm.mode} onChange={e=>setStockForm({...stockForm,mode:e.target.value as typeof stockForm.mode})}><option value="STOCK_IN">Stock In</option><option value="STOCK_OUT">Stock Out</option><option value="ADJUSTMENT">Adjustment (+/-)</option><option value="COUNT">Stock Count (absolute)</option></select></Field><Field label={stockForm.mode==='COUNT'?'Counted Quantity':stockForm.mode==='ADJUSTMENT'?'Change Quantity (+/-)':'Quantity'}><Input type="number" value={stockForm.quantity} onChange={e=>setStockForm({...stockForm,quantity:e.target.value})}/></Field><Field label="Adjustment Reason"><Input placeholder="Required traceability reason" value={stockForm.reason} onChange={e=>setStockForm({...stockForm,reason:e.target.value})}/></Field><Button className="w-full bg-blue-600 text-white" disabled={busy} onClick={saveStock}>{busy?'Saving…':'Save Stock Transaction'}</Button></div></Modal>}
+  </DashboardLayout>;
 }
+
+function Modal({title,close,children}:{title:string;close():void;children:React.ReactNode}){return <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4"><div className="bg-white rounded-3xl w-full max-w-3xl max-h-[92vh] overflow-auto"><div className="sticky top-0 z-10 bg-slate-50 border-b p-5 flex justify-between"><h2 className="text-xl font-bold">{title}</h2><button onClick={close}><X/></button></div><div className="p-6">{children}</div></div></div>}
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="block"><span className="block text-sm font-bold mb-2">{label}</span>{children}</label>}
+function Grid({children}:{children:React.ReactNode}){return <div className="grid md:grid-cols-2 gap-4">{children}</div>}
+function NumberField({label,value,set}:{label:string;value:string;set(value:string):void}){return <Field label={label}><Input type="number" min="0" value={value} onChange={e=>set(e.target.value)}/></Field>}
+function Check({label,checked,set,disabled=false}:{label:string;checked:boolean;set(value:boolean):void;disabled?:boolean}){return <label className="flex justify-between items-center rounded-xl bg-slate-50 p-3 text-sm font-bold"><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={e=>set(e.target.checked)} className="w-5 h-5 accent-blue-600"/></label>}
+function IconButton({title,onClick,children}:{title:string;onClick():void;children:React.ReactElement}){return <button title={title} onClick={onClick} className="w-9 h-9 grid place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600">{React.cloneElement(children,{className:'w-4 h-4'} as React.HTMLAttributes<HTMLElement>)}</button>}

@@ -3,133 +3,287 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function isAdmin() {
-      return signedIn() && request.auth.token.admin == true;
-    }
-    function ownsShop(shopId) {
-      return signedIn() && get(/databases/$(database)/documents/shops/$(shopId)).data.ownerId == request.auth.uid;
-    }
+    function isAdmin() { return signedIn() && request.auth.token.admin == true; }
+    function shop(shopId) { return get(/databases/$(database)/documents/shops/$(shopId)).data; }
+    function employee(shopId) { return get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data; }
+    function ownsShop(shopId) { return signedIn() && shop(shopId).ownerId == request.auth.uid; }
     function isEmployee(shopId) {
-      return signedIn() && exists(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid));
+      return signedIn()
+        && exists(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid))
+        && employee(shopId).status != 'Inactive';
     }
-    function hasShopAccess(shopId) { return isAdmin() || ownsShop(shopId) || isEmployee(shopId); }
+    function tenantMember(shopId) { return ownsShop(shopId) || isEmployee(shopId); }
+    function twoDigits(value) { return value < 10 ? '0' + string(value) : string(value); }
+    function currentDate() { return string(request.time.year()) + '-' + twoDigits(request.time.month()) + '-' + twoDigits(request.time.day()); }
+    function subscriptionActive(shopId) {
+      return shop(shopId).status in ['TRIAL', 'ACTIVE', 'EXPIRING_SOON']
+        && (!('systemStatus' in shop(shopId)) || !(shop(shopId).systemStatus in ['STOPPED', 'ARCHIVED']))
+        && (
+          (('expiresAt' in shop(shopId)) && shop(shopId).expiresAt > request.time)
+          || (!('expiresAt' in shop(shopId)) && ('expiry' in shop(shopId)) && shop(shopId).expiry >= currentDate())
+        );
+    }
+    function activeTenantMember(shopId) { return tenantMember(shopId) && subscriptionActive(shopId); }
+    function hasShopAccess(shopId) { return isAdmin() || activeTenantMember(shopId); }
+    function employeePermission(shopId, permission) {
+      return isEmployee(shopId)
+        && ('permissions' in employee(shopId))
+        && (permission in employee(shopId).permissions)
+        && employee(shopId).permissions[permission] == true;
+    }
     function employeeAtBranch(shopId, branchId) {
       return isEmployee(shopId) && (
-        (('branchId' in get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data)
-          && get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data.branchId == branchId)
-        || (!('branchId' in get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data) && branchId == 'main')
+        (('branchId' in employee(shopId)) && employee(shopId).branchId == branchId)
+        || (!('branchId' in employee(shopId)) && branchId == 'main')
       );
     }
-    function canDiscount(shopId) {
-      return isAdmin() || ownsShop(shopId) || (isEmployee(shopId)
-        && get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data.permissions.discount == true);
+    function canDiscount(shopId) { return isAdmin() || ownsShop(shopId) || employeePermission(shopId, 'discount'); }
+    function canRecordExpenses(shopId) {
+      return isEmployee(shopId) && (
+        !('permissions' in employee(shopId))
+        || !('recordExpenses' in employee(shopId).permissions)
+        || employee(shopId).permissions.recordExpenses == true
+      );
     }
     function validMoney(value) { return value is number && value >= 0 && value < 100000000000; }
+    function linkedOrderPath(shopId, orderId) { return /databases/$(database)/documents/shops/$(shopId)/orders/$(orderId); }
+    function linkedMovementPath(shopId, movementId) { return /databases/$(database)/documents/shops/$(shopId)/stockMovements/$(movementId); }
+    function validMovementRecord(shopId, productId) {
+      return request.resource.data.shopId == shopId
+        && request.resource.data.productId == productId
+        && request.resource.data.quantity is number
+        && request.resource.data.balance is number
+        && request.resource.data.balance >= 0
+        && request.resource.data.type in ['SALE', 'REFUND', 'PURCHASE', 'ADJUSTMENT', 'STOCK_IN', 'STOCK_OUT', 'COUNT']
+        && request.resource.data.reason is string
+        && request.resource.data.createdAt is string;
+    }
+    function validStockTrace(shopId, productId) {
+      return request.resource.data.stock == resource.data.stock || (
+        request.resource.data.lastMovementId is string
+        && !exists(linkedMovementPath(shopId, request.resource.data.lastMovementId))
+        && existsAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId))
+        && getAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId)).data.productId == productId
+        && getAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId)).data.balance == request.resource.data.stock
+        && getAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId)).data.quantity == request.resource.data.stock - resource.data.stock
+      );
+    }
+    function validOpeningStockTrace(shopId, productId) {
+      return request.resource.data.stock == 0
+        || request.resource.data.trackStock == false
+        || request.resource.data.itemType == 'SERVICE'
+        || (
+          request.resource.data.lastMovementId is string
+          && !exists(linkedMovementPath(shopId, request.resource.data.lastMovementId))
+          && existsAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId))
+          && getAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId)).data.productId == productId
+          && getAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId)).data.balance == request.resource.data.stock
+          && getAfter(linkedMovementPath(shopId, request.resource.data.lastMovementId)).data.quantity == request.resource.data.stock
+        );
+    }
+    function validEmployeeStockUpdate(shopId) {
+      return isEmployee(shopId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'status', 'lastOrderId', 'lastMovementId'])
+        && request.resource.data.lastOrderId is string
+        && existsAfter(linkedOrderPath(shopId, request.resource.data.lastOrderId))
+        && (
+          (!exists(linkedOrderPath(shopId, request.resource.data.lastOrderId))
+            && getAfter(linkedOrderPath(shopId, request.resource.data.lastOrderId)).data.employeeId == request.auth.uid
+            && getAfter(linkedOrderPath(shopId, request.resource.data.lastOrderId)).data.status == 'COMPLETED')
+          || (exists(linkedOrderPath(shopId, request.resource.data.lastOrderId))
+            && employeePermission(shopId, 'refund')
+            && employeeAtBranch(shopId, getAfter(linkedOrderPath(shopId, request.resource.data.lastOrderId)).data.branchId)
+            && getAfter(linkedOrderPath(shopId, request.resource.data.lastOrderId)).data.status in ['CANCELLED', 'REFUNDED'])
+        );
+    }
 
     match /users/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
-      allow create: if isAdmin() || (ownsShop(request.resource.data.shopId) && request.resource.data.role == 'EMPLOYEE');
-      allow update: if isAdmin() || ownsShop(resource.data.shopId);
+      allow create: if isAdmin() || (
+        request.resource.data.role == 'EMPLOYEE'
+        && ownsShop(request.resource.data.shopId)
+        && subscriptionActive(request.resource.data.shopId)
+        && exists(/databases/$(database)/documents/shops/$(request.resource.data.shopId)/employees/$(uid))
+      );
+      allow update: if isAdmin() || (
+        resource.data.role == 'EMPLOYEE'
+        && ownsShop(resource.data.shopId)
+        && subscriptionActive(resource.data.shopId)
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.shopId == resource.data.shopId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'branchId', 'branchName', 'active', 'updatedAt'])
+      );
       allow delete: if isAdmin();
     }
 
-    match /settings/{settingId} {
-      allow read, write: if isAdmin();
+    match /settings/{settingId} { allow read, write: if isAdmin(); }
+    match /systemAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.actorId == request.auth.uid
+        && request.resource.data.action is string
+        && request.resource.data.detail is string;
+      allow update, delete: if false;
+    }
+    match /subscriptionTransactions/{transactionId} {
+      allow read, create, update: if isAdmin();
+      allow delete: if false;
+    }
+    match /impersonationSessions/{sessionId} {
+      allow read, create, update: if isAdmin();
+      allow delete: if false;
+    }
+    match /errorLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // Explicit recursive matches allow platform-wide collection-group reports.
+    // Tenant writes continue to be governed by the shop-scoped rules below.
+    match /{path=**}/orders/{orderId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/auditLogs/{logId} {
+      allow read: if isAdmin();
     }
 
     match /shops/{shopId} {
-      allow read: if hasShopAccess(shopId);
+      allow read: if isAdmin() || tenantMember(shopId);
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (ownsShop(shopId)
+      allow update: if isAdmin() || (activeTenantMember(shopId)
+        && ownsShop(shopId)
         && request.resource.data.ownerId == resource.data.ownerId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'businessType', 'updatedAt']));
 
       match /products/{productId} {
         allow read: if hasShopAccess(shopId);
-        allow create: if (isAdmin() || ownsShop(shopId))
+        allow create: if (isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'create')))
           && request.resource.data.shopId == shopId
           && request.resource.data.name is string
           && validMoney(request.resource.data.price)
-          && request.resource.data.stock is number && request.resource.data.stock >= 0;
-        allow update: if (isAdmin() || ownsShop(shopId) || (isEmployee(shopId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'status'])))
+          && request.resource.data.stock is number && request.resource.data.stock >= 0
+          && validOpeningStockTrace(shopId, productId);
+        allow update: if (isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (subscriptionActive(shopId) && (employeePermission(shopId, 'edit') || employeePermission(shopId, 'editStock')))
+          || (subscriptionActive(shopId) && validEmployeeStockUpdate(shopId)))
           && request.resource.data.shopId == shopId
           && request.resource.data.name is string
           && validMoney(request.resource.data.price)
-          && request.resource.data.stock is number && request.resource.data.stock >= 0;
-        allow delete: if isAdmin() || ownsShop(shopId);
+          && request.resource.data.stock is number && request.resource.data.stock >= 0
+          && validStockTrace(shopId, productId);
+        allow delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'delete'));
       }
 
       match /employees/{employeeId} {
-        allow read: if hasShopAccess(shopId);
-        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+        allow get: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && request.auth.uid == employeeId);
+        allow list: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
       }
 
       match /orders/{orderId} {
-        allow read: if hasShopAccess(shopId);
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && (employeePermission(shopId, 'view') || employeePermission(shopId, 'viewOrders') || resource.data.employeeId == request.auth.uid));
         allow create: if hasShopAccess(shopId)
           && request.resource.data.shopId == shopId
           && validMoney(request.resource.data.total)
           && request.resource.data.items is list
+          && (ownsShop(shopId) || (request.resource.data.employeeId == request.auth.uid && employeePermission(shopId, 'create')))
           && (request.resource.data.discount == 0 || canDiscount(shopId));
-        allow update: if isAdmin() || ownsShop(shopId);
+        allow update: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
+          activeTenantMember(shopId)
+          && employeePermission(shopId, 'refund')
+          && employeeAtBranch(shopId, resource.data.branchId)
+          && resource.data.status == 'COMPLETED'
+          && request.resource.data.status in ['CANCELLED', 'REFUNDED']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelReason', 'refundedAt', 'refundReason'])
+        );
         allow delete: if isAdmin();
       }
 
       match /customers/{customerId} {
-        allow read, create, update: if hasShopAccess(shopId);
-        allow delete: if isAdmin() || ownsShop(shopId);
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'view'));
+        allow create: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'create'));
+        allow update: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'edit'));
+        allow delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'delete'));
       }
 
       match /shifts/{shiftId} {
-        allow read: if hasShopAccess(shopId);
-        allow create: if hasShopAccess(shopId) && request.resource.data.employeeId == request.auth.uid;
-        allow update: if isAdmin() || ownsShop(shopId) || resource.data.employeeId == request.auth.uid;
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && resource.data.employeeId == request.auth.uid);
+        allow create: if activeTenantMember(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.employeeId == request.auth.uid;
+        allow update: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && resource.data.employeeId == request.auth.uid
+            && request.resource.data.employeeId == request.auth.uid);
         allow delete: if isAdmin();
       }
 
       match /settings/{settingId} {
-        allow read, write: if isAdmin() || ownsShop(shopId);
+        allow read: if hasShopAccess(shopId);
+        allow write: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'manageSettings'));
       }
 
       match /paymentAccounts/{accountId} {
         allow read: if hasShopAccess(shopId);
-        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && employeePermission(shopId, 'manageSettings'));
       }
 
       match /branches/{branchId} {
         allow read: if hasShopAccess(shopId);
-        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && employeePermission(shopId, 'manageSettings'));
       }
 
       match /suppliers/{supplierId} {
-        allow read: if hasShopAccess(shopId);
-        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+        allow read, create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
       }
 
       match /purchases/{purchaseId} {
-        allow read: if hasShopAccess(shopId);
-        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+        allow read, create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
       }
 
       match /expenses/{expenseId} {
-        allow read: if isAdmin() || ownsShop(shopId) || employeeAtBranch(shopId, resource.data.branchId);
-        allow create: if (isAdmin() || ownsShop(shopId)) || (employeeAtBranch(shopId, request.resource.data.branchId)
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && employeeAtBranch(shopId, resource.data.branchId));
+        allow create: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
+          activeTenantMember(shopId)
+          && canRecordExpenses(shopId)
+          && employeeAtBranch(shopId, request.resource.data.branchId)
           && request.resource.data.shopId == shopId
           && request.resource.data.actorId == request.auth.uid
-          && validMoney(request.resource.data.amount));
-        allow update, delete: if isAdmin() || ownsShop(shopId);
+          && validMoney(request.resource.data.amount)
+        );
+        allow update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
       }
 
       match /stockMovements/{movementId} {
-        allow read: if hasShopAccess(shopId);
-        allow create: if hasShopAccess(shopId) && request.resource.data.shopId == shopId;
-        allow update, delete: if isAdmin() || ownsShop(shopId);
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
+          activeTenantMember(shopId) && (
+            employeePermission(shopId, 'view')
+            || employeePermission(shopId, 'editStock')
+            || employeePermission(shopId, 'accessReports')
+          )
+        );
+        allow create: if validMovementRecord(shopId, request.resource.data.productId) && (isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
+          activeTenantMember(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.orderId is string
+          && existsAfter(linkedOrderPath(shopId, request.resource.data.orderId))
+          && (getAfter(linkedOrderPath(shopId, request.resource.data.orderId)).data.employeeId == request.auth.uid
+            || employeePermission(shopId, 'refund'))
+        ));
+        allow update, delete: if false;
       }
 
       match /auditLogs/{logId} {
-        allow read: if isAdmin() || ownsShop(shopId);
-        allow create: if hasShopAccess(shopId) && request.resource.data.actorId == request.auth.uid;
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
+        allow create: if activeTenantMember(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.action is string
+          && request.resource.data.detail is string;
         allow update: if false;
         allow delete: if isAdmin();
       }

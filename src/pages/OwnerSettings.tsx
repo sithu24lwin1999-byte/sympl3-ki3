@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
-import { Card, Button, Input, Badge } from '@/components/ui';
+import { Card, Button, Input, Badge, DataState } from '@/components/ui';
 import { Save, Store, Receipt, WalletCards, Plus, Trash2, Loader2, CheckCircle2, Building2, ImagePlus, X } from 'lucide-react';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/lib/auth';
-import { createRecord, deleteRecord, setRecord, useLiveCollection, useLiveDocument } from '@/lib/firestore';
+import { createRecord, deleteRecord, setRecord, useLiveCollection, useLiveDocumentState } from '@/lib/firestore';
 import type { BusinessType, PaymentAccount, PaymentKind, Shop, ShopSettings } from '@/types';
 
 const defaults: ShopSettings = { businessType: 'RETAIL', taxRate: 5, serviceCharge: 0, invoicePrefix: 'KI3', loyaltyPointsPer1000: 10 };
@@ -13,9 +13,9 @@ const defaults: ShopSettings = { businessType: 'RETAIL', taxRate: 5, serviceChar
 export default function OwnerSettings() {
   const { user } = useAuth();
   const shopId = user?.shopId || '';
-  const shop = useLiveDocument<Shop>(shopId ? `shops/${shopId}` : null);
-  const savedSettings = useLiveDocument<ShopSettings>(shopId ? `shops/${shopId}/settings/general` : null);
-  const { data: accounts } = useLiveCollection<PaymentAccount>(shopId ? `shops/${shopId}/paymentAccounts` : null, 'createdAt');
+  const { data: shop, loading: shopLoading, error: shopError } = useLiveDocumentState<Shop>(shopId ? `shops/${shopId}` : null);
+  const { data: savedSettings, loading: settingsLoading, error: settingsError } = useLiveDocumentState<ShopSettings>(shopId ? `shops/${shopId}/settings/general` : null);
+  const { data: accounts, loading: accountsLoading, error: accountsError } = useLiveCollection<PaymentAccount>(shopId ? `shops/${shopId}/paymentAccounts` : null, 'createdAt');
   const [activeTab, setActiveTab] = useState<'Profile' | 'Receipt' | 'Payments'>('Profile');
   const [settings, setSettings] = useState<ShopSettings>(defaults);
   const [profile, setProfile] = useState({ name: '', phone: '', address: '' });
@@ -23,32 +23,41 @@ export default function OwnerSettings() {
   const [qrError, setQrError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const dataLoading = shopLoading || settingsLoading || accountsLoading;
+  const dataError = shopError || settingsError || accountsError;
 
   useEffect(() => { if (savedSettings) setSettings({ ...defaults, ...savedSettings }); }, [savedSettings]);
   useEffect(() => { if (shop) setProfile({ name: shop.name || '', phone: shop.phone || '', address: shop.address || '' }); }, [shop]);
 
   const save = async () => {
     if (!shopId) return;
-    setSaving(true);
-    await setDoc(doc(db, `shops/${shopId}/settings/general`), { ...settings, updatedAt: new Date().toISOString() }, { merge: true });
-    await updateDoc(doc(db, 'shops', shopId), { ...profile, businessType: settings.businessType, updatedAt: new Date().toISOString() });
-    if (settings.businessType === 'PHOTOBOOTH') {
-      const base = { category: 'Photobooth Services', cost: 0, price: 0, stock: 0, minStock: 0, status: 'In Stock', image: 'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=400&h=300&fit=crop', shopId, itemType: 'SERVICE', trackStock: false, updatedAt: new Date().toISOString() };
-      const [photo, costume] = await Promise.all([getDoc(doc(db, `shops/${shopId}/products/photobooth-service`)), getDoc(doc(db, `shops/${shopId}/products/costume-rental`))]);
-      await Promise.all([
-        photo.exists() ? Promise.resolve() : setRecord(`shops/${shopId}/products`, 'photobooth-service', { ...base, name: 'Photobooth ရိုက်ကူးခြင်း', sku: 'PHOTO-SERVICE', barcode: '' }),
-        costume.exists() ? Promise.resolve() : setRecord(`shops/${shopId}/products`, 'costume-rental', { ...base, name: 'ဝတ်စုံငှားခြင်း', sku: 'COSTUME-RENTAL', barcode: '' }),
-      ]);
-    }
-    await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'SETTINGS_UPDATED', detail: activeTab, createdAt: new Date().toISOString() });
-    setSaving(false); setSaved(true); window.setTimeout(() => setSaved(false), 1800);
+    setSaving(true); setSaveError('');
+    try {
+      await setDoc(doc(db, `shops/${shopId}/settings/general`), { ...settings, updatedAt: new Date().toISOString() }, { merge: true });
+      await updateDoc(doc(db, 'shops', shopId), { ...profile, businessType: settings.businessType, updatedAt: new Date().toISOString() });
+      if (settings.businessType === 'PHOTOBOOTH') {
+        const base = { category: 'Photobooth Services', cost: 0, price: 0, stock: 0, minStock: 0, status: 'In Stock', image: 'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=400&h=300&fit=crop', shopId, itemType: 'SERVICE', trackStock: false, updatedAt: new Date().toISOString() };
+        const [photo, costume] = await Promise.all([getDoc(doc(db, `shops/${shopId}/products/photobooth-service`)), getDoc(doc(db, `shops/${shopId}/products/costume-rental`))]);
+        await Promise.all([
+          photo.exists() ? Promise.resolve() : setRecord(`shops/${shopId}/products`, 'photobooth-service', { ...base, name: 'Photobooth ရိုက်ကူးခြင်း', sku: 'PHOTO-SERVICE', barcode: '' }),
+          costume.exists() ? Promise.resolve() : setRecord(`shops/${shopId}/products`, 'costume-rental', { ...base, name: 'ဝတ်စုံငှားခြင်း', sku: 'COSTUME-RENTAL', barcode: '' }),
+        ]);
+      }
+      await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'SETTINGS_UPDATED', detail: activeTab, createdAt: new Date().toISOString() });
+      setSaved(true); window.setTimeout(() => setSaved(false), 1800);
+    } catch (issue) { setSaveError(issue instanceof Error ? issue.message : 'Unable to save shop settings.'); }
+    finally { setSaving(false); }
   };
 
   const addAccount = async () => {
     if (!shopId || !account.label.trim() || !account.accountNumber.trim()) return;
-    await createRecord(`shops/${shopId}/paymentAccounts`, { ...account, shopId, active: true, createdAt: new Date().toISOString() });
-    await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'PAYMENT_ACCOUNT_CREATED', detail: account.label, createdAt: new Date().toISOString() });
-    setAccount({ kind: 'KPAY', label: '', accountName: '', accountNumber: '', bankName: '', qrCode: '' });
+    setSaveError('');
+    try {
+      await createRecord(`shops/${shopId}/paymentAccounts`, { ...account, shopId, active: true, createdAt: new Date().toISOString() });
+      await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'PAYMENT_ACCOUNT_CREATED', detail: account.label, createdAt: new Date().toISOString() });
+      setAccount({ kind: 'KPAY', label: '', accountName: '', accountNumber: '', bankName: '', qrCode: '' });
+    } catch (issue) { setSaveError(issue instanceof Error ? issue.message : 'Unable to add this payment account.'); }
   };
 
   const chooseQr = async (file?: File) => {
@@ -77,6 +86,8 @@ export default function OwnerSettings() {
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}{saving ? 'Saving…' : saved ? 'Saved' : 'Save Changes'}
       </Button>
     </div>
+    <DataState loading={dataLoading} error={dataError} />
+    {saveError && <p role="alert" className="mb-4 rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700">{saveError}</p>}
     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
       <div className="space-y-2">
         <Tab icon={Store} label="Shop Profile" active={activeTab === 'Profile'} onClick={() => setActiveTab('Profile')} />

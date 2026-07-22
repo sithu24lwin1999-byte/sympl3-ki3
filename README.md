@@ -44,13 +44,31 @@ npm run build
 
 The app uses project `gen-lang-client-0708972425` and the named Firestore database configured in `firebase-applet-config.json`. Email/Password is the supported Firebase Authentication provider.
 
-Deploy rules and indexes:
+The production application is compatible with the Firebase Spark (free) plan and uses only Firebase Authentication and Cloud Firestore. Firebase Authentication performs password hashing and ID-token/session management. Firestore Security Rules independently enforce tenant status, expiry dates, tenant membership and employee permissions.
+
+Managed owner/employee accounts are created through an isolated secondary Firebase Auth client, so the signed-in administrator or owner keeps their own session. Shop suspension, renewal and archiving are secured Firestore writes with audit logs. Expiration does not need a scheduled function: clients derive the display state from `expiry`, while Firestore Rules reject tenant writes after `expiresAt`.
+
+Spark-plan limitations are handled deliberately:
+
+- Tenant accounts are archived/disabled instead of attempting privileged Auth deletion.
+- An existing employee login email is immutable; create a replacement account and disable the old account.
+- Backups are manual JSON downloads. Automated server schedules and secret-backed email/SMS delivery require an external service or a paid backend.
+
+Deploy Firestore rules and indexes before publishing the frontend:
 
 ```bash
 firebase deploy --only firestore
 ```
 
 Administrator access is controlled by the Firebase Authentication `admin: true` custom claim.
+
+Authorization rules have an emulator test suite:
+
+```bash
+npm run test:rules
+```
+
+The Firestore emulator requires a local Java runtime.
 
 ## Deployment
 

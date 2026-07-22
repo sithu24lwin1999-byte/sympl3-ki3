@@ -1,6 +1,6 @@
 import { ReactNode, useMemo, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
-import { Button, Card, Input } from '@/components/ui';
+import { Button, Card, DataState, Input } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { createRecord, useLiveCollection } from '@/lib/firestore';
 import { formatCurrency } from '@/lib/utils';
@@ -11,11 +11,15 @@ import { calculateBranchDailyFinance } from '@/lib/finance';
 export default function OwnerBranches() {
   const { user } = useAuth();
   const shopId = user?.shopId || '';
-  const { data: storedBranches } = useLiveCollection<Branch>(shopId ? `shops/${shopId}/branches` : null, 'createdAt');
-  const { data: orders } = useLiveCollection<Order>(shopId ? `shops/${shopId}/orders` : null, 'createdAt');
-  const { data: expenses } = useLiveCollection<Expense>(shopId ? `shops/${shopId}/expenses` : null, 'createdAt');
+  const { data: storedBranches, loading: branchesLoading, error: branchesError } = useLiveCollection<Branch>(shopId ? `shops/${shopId}/branches` : null, 'createdAt');
+  const { data: orders, loading: ordersLoading, error: ordersError } = useLiveCollection<Order>(shopId ? `shops/${shopId}/orders` : null, 'createdAt');
+  const { data: expenses, loading: expensesLoading, error: expensesError } = useLiveCollection<Expense>(shopId ? `shops/${shopId}/expenses` : null, 'createdAt');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [branch, setBranch] = useState({ name: '', phone: '', address: '' });
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const dataLoading = branchesLoading || ordersLoading || expensesLoading;
+  const dataError = branchesError || ordersError || expensesError;
   const branches = useMemo(() => storedBranches.some(item => item.id === 'main') ? storedBranches : [{ id: 'main', shopId, name: 'Main Branch', active: true, createdAt: '' }, ...storedBranches], [storedBranches, shopId]);
 
   const rows = branches.map(item => {
@@ -25,16 +29,22 @@ export default function OwnerBranches() {
 
   const addBranch = async () => {
     if (!shopId || !branch.name.trim()) return;
-    await createRecord(`shops/${shopId}/branches`, { ...branch, name: branch.name.trim(), shopId, active: true, createdAt: new Date().toISOString() });
-    await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'BRANCH_CREATED', detail: branch.name.trim(), createdAt: new Date().toISOString() });
-    setBranch({ name: '', phone: '', address: '' });
+    setSaving(true); setActionError('');
+    try {
+      await createRecord(`shops/${shopId}/branches`, { ...branch, name: branch.name.trim(), shopId, active: true, createdAt: new Date().toISOString() });
+      await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'BRANCH_CREATED', detail: branch.name.trim(), createdAt: new Date().toISOString() });
+      setBranch({ name: '', phone: '', address: '' });
+    } catch (issue) { setActionError(issue instanceof Error ? issue.message : 'Unable to add this branch.'); }
+    finally { setSaving(false); }
   };
 
   return <DashboardLayout role="OWNER">
     <div className="flex flex-wrap items-end justify-between gap-4 mb-7"><div><h1 className="text-3xl font-bold mb-2">Branches & Daily Finance</h1><p className="text-slate-500">Compare daily income, expenses and owner withdrawals by branch.</p></div><label className="text-sm font-bold">Report date<Input type="date" value={date} onChange={e => setDate(e.target.value)} className="mt-2 bg-white" /></label></div>
+    <DataState loading={dataLoading} error={dataError} />
+    {actionError && <p role="alert" className="mb-4 rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700">{actionError}</p>}
     <div className="grid md:grid-cols-3 gap-4 mb-6"><Summary label="Total Income" value={totals.income} tone="text-emerald-600" /><Summary label="Total Expenses & Withdrawals" value={totals.expenses} tone="text-red-600" /><Summary label="Net Cash" value={totals.net} tone="text-blue-600" /></div>
     <Card className="p-0 overflow-hidden mb-6"><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr className="bg-slate-50"><Th>Branch</Th><Th>Orders</Th><Th>Income</Th><Th>Operating Expenses</Th><Th>Owner Withdrawals</Th><Th>Net</Th></tr></thead><tbody className="divide-y">{rows.map(row => <tr key={row.branch.id}><Td><span className="font-bold">{row.branch.name}</span><span className="block text-xs text-slate-400">{row.branch.address || 'No address'}</span></Td><Td>{row.orders}</Td><Td>{formatCurrency(row.income)}</Td><Td>{formatCurrency(row.operating)}</Td><Td>{formatCurrency(row.withdrawals)}</Td><Td><span className={row.net < 0 ? 'font-black text-red-600' : 'font-black text-blue-600'}>{formatCurrency(row.net)}</span></Td></tr>)}</tbody></table></div></Card>
-    <Card className="p-5"><h3 className="font-bold flex items-center gap-2 mb-4"><Building2 className="w-5 h-5 text-blue-600" />Add Shop Branch</h3><div className="grid md:grid-cols-4 gap-3"><Input placeholder="Branch name" value={branch.name} onChange={e => setBranch({ ...branch, name: e.target.value })} /><Input placeholder="Phone" value={branch.phone} onChange={e => setBranch({ ...branch, phone: e.target.value })} /><Input placeholder="Address" value={branch.address} onChange={e => setBranch({ ...branch, address: e.target.value })} /><Button onClick={addBranch} disabled={!branch.name.trim()}><Plus className="w-4 h-4 mr-2" />Add Branch</Button></div></Card>
+    <Card className="p-5"><h3 className="font-bold flex items-center gap-2 mb-4"><Building2 className="w-5 h-5 text-blue-600" />Add Shop Branch</h3><div className="grid md:grid-cols-4 gap-3"><Input placeholder="Branch name" value={branch.name} onChange={e => setBranch({ ...branch, name: e.target.value })} /><Input placeholder="Phone" value={branch.phone} onChange={e => setBranch({ ...branch, phone: e.target.value })} /><Input placeholder="Address" value={branch.address} onChange={e => setBranch({ ...branch, address: e.target.value })} /><Button onClick={addBranch} disabled={!branch.name.trim() || saving}><Plus className="w-4 h-4 mr-2" />{saving ? 'Adding…' : 'Add Branch'}</Button></div></Card>
   </DashboardLayout>;
 }
 

@@ -1,280 +1,99 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { addDoc, collection, doc, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
+import { Search, Plus, MoreVertical, Filter, X } from 'lucide-react';
 import DashboardLayout from '@/layouts/DashboardLayout';
-import { Card, Button, Badge, Input } from '@/components/ui';
-import { Search, Plus, MoreVertical, Filter, X, CheckCircle2 } from 'lucide-react';
-import { createManagedUser } from '@/lib/auth';
-import { db } from '@/lib/firebase';
-import { deleteShopCascade, updateRecord, useLiveCollection } from '@/lib/firestore';
-import { collection, doc, setDoc } from 'firebase/firestore';
-import type { BusinessType, Shop } from '@/types';
+import { Card, Button, Badge, Input, TableStateRow } from '@/components/ui';
+import { createManagedUser, useAuth } from '@/lib/auth';
+import { auth, db } from '@/lib/firebase';
+import { useLiveCollection, useLiveCollectionGroup } from '@/lib/firestore';
+import { addCalendarMonths, addDays, daysRemaining, renewalPeriod, subscriptionState, todayKey } from '@/lib/subscriptions';
+import { formatCurrency } from '@/lib/utils';
+import type { AuditLog, BusinessType, Order, Shop, SubscriptionStatus, SubscriptionTransaction } from '@/types';
+
+const plans = [{ name: 'Basic', fee: 30000 }, { name: 'Premium', fee: 50000 }];
+const blankShop = () => ({ id: doc(collection(db, 'shops')).id, name: '', businessType: 'RETAIL' as BusinessType, owner: '', ownerEmail: '', password: '', phone: '', plan: 'Basic', monthlyFee: 30000, status: 'TRIAL' as SubscriptionStatus, start: todayKey() });
 
 export default function AdminShops() {
   const location = useLocation();
+  const { user } = useAuth();
   const { data: shops, loading, error } = useLiveCollection<Shop>('shops', 'createdAt');
+  const { data: transactions } = useLiveCollection<SubscriptionTransaction>('subscriptionTransactions', 'createdAt');
+  const { data: orders } = useLiveCollectionGroup<Order>('orders', 'createdAt');
+  const { data: auditLogs } = useLiveCollectionGroup<AuditLog>('auditLogs', 'createdAt');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (location.state?.openCreateModal) {
-      setShowCreateModal(true);
-      // Clear the state so it doesn't reopen on refresh
-      window.history.replaceState({}, document.title)
-    }
-  }, [location.state]);
-
-  const [newShop, setNewShop] = useState({ name: '', businessType: 'RETAIL' as BusinessType, owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
+  const [selected, setSelected] = useState<Shop | null>(null);
+  const [renewing, setRenewing] = useState<Shop | null>(null);
+  const [newShop, setNewShop] = useState(blankShop);
+  const [renewStart, setRenewStart] = useState(todayKey());
   const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
   const [formError, setFormError] = useState('');
-  const [operationError, setOperationError] = useState('');
 
-  const handleCreateShop = async () => {
-    const cleaned = {
-      ...newShop,
-      name: newShop.name.trim(), owner: newShop.owner.trim(), ownerEmail: newShop.ownerEmail.trim().toLowerCase(), phone: newShop.phone.trim(),
-    };
-    if (!cleaned.name) { setFormError('Shop name is required.'); return; }
-    if (!cleaned.owner) { setFormError('Owner name is required.'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned.ownerEmail)) { setFormError('Enter a valid owner email address.'); return; }
-    if (cleaned.password.length < 8) { setFormError('Temporary password must contain at least 8 characters.'); return; }
+  useEffect(() => { if (location.state?.openCreateModal) { setShowCreate(true); window.history.replaceState({}, document.title); } }, [location.state]);
+  const audit = async (action: string, detail: string) => addDoc(collection(db, 'systemAuditLogs'), { actorId: user?.id, actorName: user?.name || 'Administrator', actorRole: 'ADMIN', action, detail, createdAt: new Date().toISOString() });
+  const notify = (value: string) => { setMessage(value); window.setTimeout(() => setMessage(''), 5000); };
+
+  const createShop = async () => {
+    const email = newShop.ownerEmail.trim().toLowerCase();
+    if (!newShop.name.trim() || !newShop.owner.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || newShop.password.length < 8) { setFormError('Complete all required fields and use a password with at least 8 characters.'); return; }
     setSaving(true); setFormError('');
     try {
-      const shopRef = doc(collection(db, 'shops'));
-      const ownerId = await createManagedUser({ email: cleaned.ownerEmail, password: cleaned.password, name: cleaned.owner, role: 'OWNER', shopId: shopRef.id });
-      const { password: _password, ...shopData } = cleaned;
-      await setDoc(shopRef, { ...shopData, ownerId, ownerEmail: cleaned.ownerEmail, status: 'ACTIVE', expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10), createdAt: new Date().toISOString() });
-      await setDoc(doc(db, `shops/${shopRef.id}/branches/main`), { shopId: shopRef.id, name: 'Main Branch', phone: cleaned.phone, active: true, createdAt: new Date().toISOString() });
-      if (cleaned.businessType === 'PHOTOBOOTH') {
-        const service = { category: 'Photobooth Services', cost: 0, price: 0, stock: 0, minStock: 0, status: 'In Stock', image: 'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=400&h=300&fit=crop', shopId: shopRef.id, itemType: 'SERVICE', trackStock: false, createdAt: new Date().toISOString() };
-        await Promise.all([
-          setDoc(doc(db, `shops/${shopRef.id}/products/photobooth-service`), { ...service, name: 'Photobooth ရိုက်ကူးခြင်း', sku: 'PHOTO-SERVICE', barcode: '' }),
-          setDoc(doc(db, `shops/${shopRef.id}/products/costume-rental`), { ...service, name: 'ဝတ်စုံငှားခြင်း', sku: 'COSTUME-RENTAL', barcode: '' }),
-        ]);
+      const start = newShop.start;
+      const safeExpiry = newShop.status === 'TRIAL' ? addDays(start, 14) : addCalendarMonths(start, 1);
+      const ownerId = await createManagedUser({ email, password: newShop.password, name: newShop.owner.trim(), role: 'OWNER', shopId: newShop.id });
+      const shop: Omit<Shop, 'id'> = { name: newShop.name.trim(), owner: newShop.owner.trim(), ownerId, ownerEmail: email, phone: newShop.phone.trim(), businessType: newShop.businessType, plan: newShop.plan, monthlyFee: newShop.monthlyFee, status: newShop.status, systemStatus: 'ACTIVE', subscriptionStart: start, expiry: safeExpiry, trialEndsAt: newShop.status === 'TRIAL' ? safeExpiry : undefined, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await setDoc(doc(db, 'shops', newShop.id), { ...shop, expiresAt: Timestamp.fromDate(new Date(`${safeExpiry}T23:59:59Z`)) });
+      await setDoc(doc(db, `shops/${newShop.id}/branches/main`), { shopId: newShop.id, name: 'Main Branch', phone: newShop.phone.trim(), active: true, createdAt: new Date().toISOString() });
+      await addDoc(collection(db, 'subscriptionTransactions'), { shopId: newShop.id, shopName: newShop.name.trim(), plan: newShop.plan, type: 'INITIAL', status: 'PAID', amount: newShop.status === 'TRIAL' ? 0 : newShop.monthlyFee, currency: 'MMK', periodStart: start, periodEnd: safeExpiry, paidAt: new Date().toISOString(), createdAt: new Date().toISOString(), actorId: user?.id, actorName: user?.name });
+      if (newShop.businessType === 'PHOTOBOOTH') {
+        const service = { category: 'Photobooth Services', cost: 0, price: 0, stock: 0, minStock: 0, status: 'In Stock', image: '', shopId: newShop.id, itemType: 'SERVICE', trackStock: false, createdAt: new Date().toISOString() };
+        await Promise.all([setDoc(doc(db, `shops/${newShop.id}/products/photobooth-service`), { ...service, name: 'Photobooth ရိုက်ကူးခြင်း', sku: 'PHOTO-SERVICE' }), setDoc(doc(db, `shops/${newShop.id}/products/costume-rental`), { ...service, name: 'ဝတ်စုံငှားခြင်း', sku: 'COSTUME-RENTAL' })]);
       }
-      setShowCreateModal(false);
-      setNewShop({ name: '', businessType: 'RETAIL', owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
-    } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to create shop.'); }
-    finally { setSaving(false); }
+      await audit('SHOP_CREATED', `${newShop.name} (${newShop.id})`);
+      setShowCreate(false); setNewShop(blankShop()); notify('Shop, owner account and initial subscription transaction created.');
+    } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to create shop.'); } finally { setSaving(false); }
   };
 
-  const changeStatus = async (id: string, newStatus: string) => {
-    await updateRecord('shops', id, { status: newStatus });
-    setActiveMenu(null);
+  const setState = async (shop: Shop, status: SubscriptionStatus) => {
+    if (status === 'ACTIVE' && shop.expiry < todayKey()) { setRenewing(shop); setRenewStart(todayKey()); setActiveMenu(null); return; }
+    await updateDoc(doc(db, 'shops', shop.id), { status, systemStatus: status === 'SUSPENDED' ? 'STOPPED' : 'ACTIVE', updatedAt: new Date().toISOString() });
+    await audit('SHOP_STATUS_CHANGED', `${shop.id}: ${status}`); setActiveMenu(null); notify(status === 'SUSPENDED' ? 'Shop stopped immediately. Historical data was retained.' : `Shop changed to ${status}.`);
   };
-
-  const deleteShop = async (shop: Shop) => {
-    if (!window.confirm(`Permanently delete ${shop.name}?\n\nThis removes its owner/staff access and all shop data. This cannot be undone.`)) return;
-    setDeletingId(shop.id); setOperationError('');
-    try {
-      await deleteShopCascade(shop.id);
-      setActiveMenu(null);
-    } catch (issue) {
-      setOperationError(issue instanceof Error ? issue.message : 'Unable to delete this shop.');
-    } finally {
-      setDeletingId(null);
-    }
+  const extend = async (shop: Shop, explicitStart?: string) => {
+    const period = renewalPeriod(shop.expiry, todayKey(), explicitStart);
+    await updateDoc(doc(db, 'shops', shop.id), { status: 'ACTIVE', systemStatus: 'ACTIVE', subscriptionStart: period.periodStart, expiry: period.periodEnd, expiresAt: Timestamp.fromDate(new Date(`${period.periodEnd}T23:59:59Z`)), updatedAt: new Date().toISOString() });
+    await addDoc(collection(db, 'subscriptionTransactions'), { shopId: shop.id, shopName: shop.name, plan: shop.plan, type: explicitStart ? 'RENEWAL' : 'EXTENSION', status: 'PAID', amount: shop.monthlyFee || 0, currency: 'MMK', periodStart: period.periodStart, periodEnd: period.periodEnd, paidAt: new Date().toISOString(), createdAt: new Date().toISOString(), actorId: user?.id, actorName: user?.name });
+    await audit(explicitStart ? 'SUBSCRIPTION_RENEWED' : 'SUBSCRIPTION_EXTENDED', `${shop.id}: ${period.periodStart} to ${period.periodEnd}`); setRenewing(null); setActiveMenu(null); notify(`Subscription extended through ${period.periodEnd}.`);
   };
+  const archive = async (shop: Shop) => { if (!window.confirm(`Archive ${shop.name}? Access stops immediately; historical data will be retained.`)) return; await updateDoc(doc(db, 'shops', shop.id), { status: 'CANCELLED', systemStatus: 'ARCHIVED', archivedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); await audit('SHOP_ARCHIVED', `${shop.name} (${shop.id})`); setActiveMenu(null); notify('Shop archived. Data was retained.'); };
+  const edit = async (shop: Shop) => { const name = window.prompt('Shop name', shop.name); if (!name) return; const phone = window.prompt('Contact phone', shop.phone); if (phone === null) return; await updateDoc(doc(db, 'shops', shop.id), { name: name.trim(), phone: phone.trim(), updatedAt: new Date().toISOString() }); await audit('SHOP_EDITED', shop.id); notify('Shop details updated.'); };
+  const resetPassword = async (shop: Shop) => { await sendPasswordResetEmail(auth, shop.ownerEmail); await audit('OWNER_PASSWORD_RESET_SENT', `${shop.id}: ${shop.ownerEmail}`); setActiveMenu(null); notify(`Password reset email sent to ${shop.ownerEmail}.`); };
+  const requestImpersonation = async (shop: Shop) => { const reason = window.prompt('Reason for audited support access (required)'); if (!reason?.trim()) return; const session = await addDoc(collection(db, 'impersonationSessions'), { adminId: user?.id, targetUserId: shop.ownerId, shopId: shop.id, reason: reason.trim(), status: 'REQUESTED', createdAt: new Date().toISOString() }); await audit('IMPERSONATION_REQUESTED', `${shop.id}; session ${session.id}; reason: ${reason.trim()}`); setActiveMenu(null); notify('Audited impersonation request recorded. No user session was opened.'); };
 
-  const filteredShops = shops.filter(s =>
-    (statusFilter === 'ALL' || s.status === statusFilter) &&
-    (s.name.toLowerCase().includes(search.toLowerCase()) || s.owner.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filtered = shops.filter(shop => (statusFilter === 'ALL' || subscriptionState(shop) === statusFilter) && `${shop.name} ${shop.owner} ${shop.ownerEmail} ${shop.id}`.toLowerCase().includes(search.toLowerCase()));
+  const lastActivity = (shop: Shop) => orders.filter(order => order.shopId === shop.id).map(order => order.createdAt).sort().at(-1) || shop.updatedAt || shop.createdAt || '—';
+  const badge = (state: SubscriptionStatus) => state === 'ACTIVE' ? 'success' : state === 'EXPIRED' || state === 'CANCELLED' ? 'danger' : 'warning';
 
-  return (
-    <DashboardLayout role="ADMIN">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Tenant Shops</h1>
-          <p className="text-slate-500">Manage all registered shops on the KI3 POS platform.</p>
-        </div>
-        <Button className="gap-2 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowCreateModal(true)}>
-          <Plus className="w-4 h-4" /> Create New Shop
-        </Button>
-      </div>
+  return <DashboardLayout role="ADMIN">
+    <div className="flex justify-between items-end mb-8"><div><h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Tenant Shops</h1><p className="text-slate-500">Subscriptions, access and tenant lifecycle management.</p></div><Button className="gap-2 bg-blue-600 text-white" onClick={() => setShowCreate(true)}><Plus className="w-4 h-4" /> Create New Shop</Button></div>
+    {message && <p className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{message}</p>}
+    <Card className="p-0 overflow-visible relative"><div className="p-4 border-b flex flex-wrap gap-3 justify-between"><div className="flex items-center bg-slate-50 border rounded-xl px-3 py-2 w-96 max-w-full"><Search className="w-4 h-4 text-slate-400 mr-2"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shop, owner, email or ID…" className="bg-transparent outline-none text-sm w-full"/></div><label className="flex items-center gap-2 border rounded-xl px-4"><Filter className="w-4 h-4"/><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-11 bg-transparent text-sm font-semibold outline-none"><option value="ALL">All statuses</option>{['TRIAL','ACTIVE','EXPIRING_SOON','EXPIRED','SUSPENDED','CANCELLED'].map(value => <option key={value}>{value}</option>)}</select></label></div>
+      <div className="overflow-x-auto min-h-[360px]"><table className="w-full text-left min-w-[1500px]"><thead><tr className="bg-slate-50 border-b">{['Shop / ID / Type','Owner / Phone / Email','Plan / Fee','Start / Expiry / Days','Subscription','System','Last Activity','Actions'].map(label => <th key={label} className="px-5 py-4 text-xs font-bold text-slate-500 uppercase">{label}</th>)}</tr></thead><tbody className="divide-y"><TableStateRow columns={8} loading={loading} error={error} empty={!loading && filtered.length === 0} emptyMessage="No shops match the current filters." />{filtered.map(shop => { const state = subscriptionState(shop); return <tr key={shop.id} className="hover:bg-slate-50"><td className="px-5 py-4"><p className="font-bold">{shop.name}</p><p className="text-xs text-slate-400">{shop.id} · {shop.businessType || 'OTHER'}</p></td><td className="px-5 py-4"><p className="font-medium">{shop.owner}</p><p className="text-xs text-slate-500">{shop.phone} · {shop.ownerEmail}</p></td><td className="px-5 py-4"><p>{shop.plan}</p><p className="text-xs text-slate-400">{formatCurrency(shop.monthlyFee || 0)}/mo</p></td><td className="px-5 py-4 text-sm"><p>{shop.subscriptionStart || '—'} → {shop.expiry}</p><p className="text-xs text-slate-400">{daysRemaining(shop.expiry)} days remaining</p></td><td className="px-5 py-4"><Badge variant={badge(state)}>{state.replace('_',' ')}</Badge></td><td className="px-5 py-4 text-sm font-semibold">{shop.systemStatus || 'ACTIVE'}</td><td className="px-5 py-4 text-xs text-slate-500">{lastActivity(shop).replace('T',' ').slice(0,16)}</td><td className="px-5 py-4 text-right relative"><Button variant="ghost" className="h-8 w-8 p-0" onClick={() => setActiveMenu(activeMenu === shop.id ? null : shop.id)}><MoreVertical className="w-4 h-4"/></Button>{activeMenu === shop.id && <div className="absolute right-8 top-10 w-56 bg-white rounded-xl shadow-xl border py-2 z-50 text-left">{[
+          ['View details', () => { setSelected(shop); setActiveMenu(null); }], ['Edit shop', () => edit(shop)], ['Renew subscription', () => { setRenewing(shop); setRenewStart(shop.expiry < todayKey() ? todayKey() : shop.expiry); setActiveMenu(null); }], ['Add one month', () => extend(shop)], ['Reset owner password', () => resetPassword(shop)], ['Request impersonation', () => requestImpersonation(shop)]
+        ].map(([label, action]) => <button key={label as string} onClick={action as () => void} className="block w-full px-4 py-2 text-sm hover:bg-slate-50">{label as string}</button>)}<div className="border-t my-1"/>{state === 'SUSPENDED' ? <button onClick={() => setState(shop,'ACTIVE')} className="w-full px-4 py-2 text-sm text-emerald-700 text-left">Reactivate</button> : <button onClick={() => setState(shop,'SUSPENDED')} className="w-full px-4 py-2 text-sm text-amber-700 text-left">Stop / Suspend</button>}<button onClick={() => archive(shop)} className="w-full px-4 py-2 text-sm text-red-600 text-left">Archive shop</button></div>}</td></tr>; })}</tbody></table></div><div className="p-4 border-t bg-slate-50 text-sm text-slate-500">Showing {filtered.length} of {shops.length} shops</div>
+    </Card>
 
-      <Card className="p-0 overflow-visible flex flex-col z-10 relative">
-        {operationError && <p className="m-4 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{operationError}</p>}
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-white rounded-t-3xl">
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 w-80">
-            <Search className="w-4 h-4 text-slate-400 mr-2" />
-            <input 
-              type="text" 
-              placeholder="Search shops by name or owner..." 
-              className="bg-transparent border-none outline-none text-sm w-full text-slate-900"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <label className="flex items-center gap-2 border-2 border-slate-200 rounded-2xl px-4 text-slate-600 bg-white">
-            <Filter className="w-4 h-4" />
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-11 bg-transparent text-sm font-semibold outline-none">
-              <option value="ALL">All statuses</option>
-              <option value="ACTIVE">Active</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="EXPIRED">Expired</option>
-            </select>
-          </label>
-        </div>
-
-        {error && <p className="p-4 text-sm text-red-600">{error}</p>}
-        <div className="overflow-x-auto min-h-[300px]">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Shop Details</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Owner Contact</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Plan</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Expiry Date</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {!loading && filteredShops.map((shop) => (
-                <tr key={shop.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-700 text-sm border border-slate-200">
-                        {shop.name.charAt(0)}
-                      </div>
-                      <div className="ml-4">
-                        <div className="text-sm font-bold text-slate-900">{shop.name}</div>
-                        <div className="text-xs text-slate-400">ID: {shop.id}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-slate-900">{shop.owner}</div>
-                    <div className="text-xs text-slate-500">{shop.phone}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-medium text-slate-700">{shop.plan}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge 
-                      variant={shop.status === 'ACTIVE' ? 'success' : shop.status === 'EXPIRED' ? 'danger' : 'warning'}
-                      className={
-                        shop.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-600' : 
-                        shop.status === 'EXPIRED' ? 'bg-red-50 text-red-600' : 
-                        'bg-amber-50 text-amber-600'
-                      }
-                    >
-                      {shop.status}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                    {shop.expiry}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium relative">
-                    <Button 
-                      variant="ghost" 
-                      className="h-8 w-8 p-0 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                      onClick={() => setActiveMenu(activeMenu === shop.id ? null : shop.id)}
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                    
-                    {activeMenu === shop.id && (
-                      <div className="absolute right-8 top-10 w-40 bg-white rounded-xl shadow-lg border border-slate-100 py-2 z-50 text-left flex flex-col">
-                        <button onClick={() => changeStatus(shop.id, 'ACTIVE')} className="block w-full px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">Set Active</button>
-                        <button onClick={() => changeStatus(shop.id, 'SUSPENDED')} className="block w-full px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">Suspend</button>
-                        <button onClick={() => changeStatus(shop.id, 'EXPIRED')} className="block w-full px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 text-left">Set Expired</button>
-                        <div className="h-px bg-slate-100 my-1 w-full"></div>
-                        <button disabled={deletingId === shop.id} onClick={() => deleteShop(shop)} className="block w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 text-left font-medium disabled:opacity-50">{deletingId === shop.id ? 'Deleting…' : 'Delete Shop'}</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-sm text-slate-500">
-          <div>Showing 1 to {filteredShops.length} of {shops.length} entries</div>
-          <div className="flex gap-1">
-            <Button variant="outline" className="h-8 px-3 text-xs bg-white border-slate-200" disabled>Previous</Button>
-            <Button variant="outline" className="h-8 px-3 text-xs bg-blue-50 text-blue-600 border-blue-200">1</Button>
-            <Button variant="outline" className="h-8 px-3 text-xs bg-white border-slate-200" disabled>Next</Button>
-          </div>
-        </div>
-      </Card>
-
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="p-6 bg-slate-50 flex justify-between items-center border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">Register New Shop</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-200">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Shop Name</label>
-                <Input 
-                  placeholder="e.g. City Mart" 
-                  value={newShop.name}
-                  onChange={(e) => setNewShop({...newShop, name: e.target.value})}
-                  className="bg-white border-slate-200"
-                />
-              </div>
-              <div><label className="block text-sm font-bold text-slate-700 mb-2">Business Type</label><select value={newShop.businessType} onChange={e => setNewShop({ ...newShop, businessType: e.target.value as BusinessType })} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4"><option value="RETAIL">General Retail</option><option value="RESTAURANT">Restaurant / Café</option><option value="FASHION">Fashion & Clothing</option><option value="BAKERY">Bakery</option><option value="PHOTOBOOTH">Photobooth & Costume Rental</option><option value="SERVICE">Service Business</option><option value="OTHER">Other</option></select></div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Owner Email</label>
-                <Input type="email" value={newShop.ownerEmail} onChange={(e) => setNewShop({...newShop, ownerEmail: e.target.value})} className="bg-white border-slate-200" />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Temporary Password</label>
-                <Input type="password" minLength={8} value={newShop.password} onChange={(e) => setNewShop({...newShop, password: e.target.value})} className="bg-white border-slate-200" />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Owner Name</label>
-                <Input 
-                  placeholder="Owner's full name" 
-                  value={newShop.owner}
-                  onChange={(e) => setNewShop({...newShop, owner: e.target.value})}
-                  className="bg-white border-slate-200"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Contact Phone</label>
-                <Input 
-                  placeholder="e.g. 09..." 
-                  value={newShop.phone}
-                  onChange={(e) => setNewShop({...newShop, phone: e.target.value})}
-                  className="bg-white border-slate-200"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">Subscription Plan</label>
-                <select 
-                  className="flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                  value={newShop.plan}
-                  onChange={(e) => setNewShop({...newShop, plan: e.target.value})}
-                >
-                  <option value="30000 MMK">Basic (30,000 MMK)</option>
-                  <option value="50000 MMK">Premium (50,000 MMK)</option>
-                </select>
-              </div>
-            </div>
-
-            {formError && <p className="px-6 pb-3 text-sm text-red-600">{formError}</p>}
-
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-3">
-              <Button className="flex-1 bg-white text-slate-700 border-slate-200 hover:bg-slate-100" variant="outline" onClick={() => setShowCreateModal(false)}>
-                Cancel
-              </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleCreateShop} disabled={saving || !newShop.name.trim() || !newShop.owner.trim() || !newShop.ownerEmail.trim() || newShop.password.length < 8}>
-                {saving ? 'Creating…' : 'Create Shop'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </DashboardLayout>
-  );
+    {showCreate && <Modal title="Register New Shop" close={() => setShowCreate(false)}><div className="space-y-4"><ReadOnly label="Unique Shop ID" value={newShop.id}/><Field label="Shop Name"><Input value={newShop.name} onChange={e => setNewShop({...newShop,name:e.target.value})}/></Field><Field label="Business Type"><select className="control" value={newShop.businessType} onChange={e => setNewShop({...newShop,businessType:e.target.value as BusinessType})}>{['RETAIL','RESTAURANT','FASHION','BAKERY','PHOTOBOOTH','SERVICE','OTHER'].map(x => <option key={x}>{x}</option>)}</select></Field><Field label="Owner Name"><Input value={newShop.owner} onChange={e => setNewShop({...newShop,owner:e.target.value})}/></Field><Field label="Owner Email"><Input type="email" value={newShop.ownerEmail} onChange={e => setNewShop({...newShop,ownerEmail:e.target.value})}/></Field><Field label="Temporary Password"><Input type="password" value={newShop.password} onChange={e => setNewShop({...newShop,password:e.target.value})}/></Field><Field label="Phone"><Input value={newShop.phone} onChange={e => setNewShop({...newShop,phone:e.target.value})}/></Field><Field label="Plan"><select className="control" value={newShop.plan} onChange={e => { const plan=plans.find(x=>x.name===e.target.value)!; setNewShop({...newShop,plan:plan.name,monthlyFee:plan.fee}); }}>{plans.map(x=><option key={x.name}>{x.name}</option>)}</select></Field><Field label="Initial State"><select className="control" value={newShop.status} onChange={e=>setNewShop({...newShop,status:e.target.value as SubscriptionStatus})}><option value="TRIAL">Trial (14 days)</option><option value="ACTIVE">Active (1 month)</option></select></Field><Field label="Subscription Start"><Input type="date" value={newShop.start} onChange={e=>setNewShop({...newShop,start:e.target.value})}/></Field>{formError&&<p className="text-sm text-red-600">{formError}</p>}<div className="flex gap-3"><Button variant="outline" className="flex-1" onClick={()=>setShowCreate(false)}>Cancel</Button><Button className="flex-1 bg-blue-600 text-white" disabled={saving} onClick={createShop}>{saving?'Creating…':'Create Shop'}</Button></div></div></Modal>}
+    {renewing && <Modal title="Renew Subscription" close={()=>setRenewing(null)}><p className="text-sm text-slate-500 mb-4">If the subscription has expired, renewal starts today unless you explicitly choose another date.</p><Field label="Renewal Start Date"><Input type="date" value={renewStart} onChange={e=>setRenewStart(e.target.value)}/></Field><ReadOnly label="New Expiry" value={addCalendarMonths(renewStart,1)}/><ReadOnly label="Amount" value={formatCurrency(renewing.monthlyFee||0)}/><Button className="w-full mt-5 bg-blue-600 text-white" onClick={()=>extend(renewing,renewStart)}>Record Payment & Renew</Button></Modal>}
+    {selected && <Modal title={selected.name} close={()=>setSelected(null)}><div className="grid grid-cols-2 gap-3"><ReadOnly label="Shop ID" value={selected.id}/><ReadOnly label="Business Type" value={selected.businessType||'OTHER'}/><ReadOnly label="Owner" value={selected.owner}/><ReadOnly label="Email" value={selected.ownerEmail}/><ReadOnly label="Subscription" value={subscriptionState(selected)}/><ReadOnly label="Expiry" value={selected.expiry}/></div><h3 className="font-bold mt-6 mb-2">Payment History</h3><div className="max-h-36 overflow-auto space-y-2">{transactions.filter(x=>x.shopId===selected.id).map(x=><div key={x.id} className="flex justify-between text-sm border-b pb-2"><span>{x.type} · {x.periodEnd}</span><span>{formatCurrency(x.amount)} · {x.status}</span></div>)}{!transactions.some(x=>x.shopId===selected.id)&&<p className="text-sm text-slate-400">No payments recorded.</p>}</div><h3 className="font-bold mt-6 mb-2">Activity Logs</h3><div className="max-h-36 overflow-auto space-y-2">{auditLogs.filter(x=>x.shopId===selected.id).slice(0,10).map(x=><div key={x.id} className="text-sm border-b pb-2"><p className="font-medium">{x.action}</p><p className="text-xs text-slate-400">{x.detail}</p></div>)}{!auditLogs.some(x=>x.shopId===selected.id)&&<p className="text-sm text-slate-400">No tenant activity recorded.</p>}</div></Modal>}
+  </DashboardLayout>;
 }
+
+function Modal({ title, close, children }: { title: string; close(): void; children: React.ReactNode }) { return <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4"><div className="bg-white rounded-3xl w-full max-w-xl max-h-[90vh] overflow-auto shadow-2xl"><div className="sticky top-0 p-5 bg-slate-50 border-b flex justify-between z-10"><h2 className="text-xl font-bold">{title}</h2><button onClick={close}><X className="w-5 h-5"/></button></div><div className="p-6">{children}</div></div></div>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="block text-sm font-bold text-slate-700 mb-2">{label}</span>{children}</label>; }
+function ReadOnly({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] uppercase font-bold text-slate-400">{label}</p><p className="text-sm font-semibold break-all">{value}</p></div>; }

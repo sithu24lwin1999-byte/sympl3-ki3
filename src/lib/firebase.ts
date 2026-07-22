@@ -1,12 +1,17 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { enableIndexedDbPersistence, getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export const firebaseApp = getApps()[0] || initializeApp(firebaseConfig);
 export const auth = getAuth(firebaseApp);
-export const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-
-enableIndexedDbPersistence(db).catch(() => {
-  // Persistence can be unavailable in private mode or when another tab owns the cache.
-});
+export const db = (() => {
+  try {
+    return initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch {
+    // Vite hot reload can reuse an already initialized Firebase app.
+    return getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+  }
+})();

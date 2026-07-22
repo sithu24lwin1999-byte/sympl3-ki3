@@ -1,337 +1,52 @@
-import React, { useEffect, useRef, useState } from 'react';
-import DashboardLayout from '@/layouts/DashboardLayout';
-import { Card, Button, Input } from '@/components/ui';
-import { Save, Globe, Shield, CreditCard, Bell, Database, Loader2, CheckCircle2 } from 'lucide-react';
-import { downloadText } from '@/lib/actions';
+import React, { useEffect, useState } from 'react';
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { Bell, CheckCircle2, CreditCard, Database, Globe, Loader2, Save, Shield, SlidersHorizontal } from 'lucide-react';
+import DashboardLayout from '@/layouts/DashboardLayout';
+import { Button, Card, Input } from '@/components/ui';
+import { downloadText } from '@/lib/actions';
 import { useAuth } from '@/lib/auth';
+import { db } from '@/lib/firebase';
+import { useLiveCollection } from '@/lib/firestore';
+import type { AuditLog, PlatformSettings } from '@/types';
 
-export default function AdminSettings() {
+type Settings = PlatformSettings & { paymentMethods: Record<string, boolean>; taxInclusive: boolean; maintenanceMessage: string };
+const defaults: Settings = { systemName:'KI3 POS', supportEmail:'support@ki3.com', logo:'', favicon:'', currency:'MMK', language:'en', timezone:'Asia/Yangon', defaultTaxRate:0, taxInclusive:false, trialPeriodDays:14, gracePeriodDays:0, maintenanceMode:false, maintenanceMessage:'Scheduled maintenance is in progress.', dataRetentionDays:2555, plans:[{id:'basic',name:'Basic',monthlyFee:30000,active:true,trialDays:14},{id:'premium',name:'Premium',monthlyFee:50000,active:true,trialDays:14}], featureFlags:{photobooth:true,inventory:true,expenses:true,offlineMode:true}, notifications:{emailEnabled:false,smsEnabled:false,renewalDays:7}, security:{sessionTimeoutMinutes:30,requireStrongPasswords:true,auditRetentionDays:2555}, backup:{enabled:true,frequency:'DAILY',retentionDays:30}, paymentMethods:{CASH:true,KPAY:true,WAVE:true,BANK:true} };
+const tabs = [
+  ['General', Globe], ['Subscriptions', CreditCard], ['Notifications', Bell], ['Security & Roles', Shield], ['Features & Operations', SlidersHorizontal], ['Backups & Health', Database],
+] as const;
+
+export default function AdminSettings(){
   const { firebaseUser, changeAdminCredentials } = useAuth();
-  const [activeTab, setActiveTab] = useState('General Settings');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  
-  const [basicPlanPrice, setBasicPlanPrice] = useState('30,000');
-  const [premiumPlanPrice, setPremiumPlanPrice] = useState('50,000');
-  const [editingPlan, setEditingPlan] = useState<string | null>(null);
+  const { data: auditLogs } = useLiveCollection<AuditLog>('systemAuditLogs','createdAt');
+  const { data: errorLogs } = useLiveCollection<AuditLog>('errorLogs','createdAt');
+  const [active,setActive]=useState<(typeof tabs)[number][0]>('General');
+  const [settings,setSettings]=useState<Settings>(defaults);
+  const [saving,setSaving]=useState(false); const [saved,setSaved]=useState(false); const [backingUp,setBackingUp]=useState(false);
+  const [credentials,setCredentials]=useState({currentPassword:'',newEmail:'',newPassword:'',confirmPassword:''});
+  const [accountBusy,setAccountBusy]=useState(false); const [accountMessage,setAccountMessage]=useState(''); const [accountError,setAccountError]=useState('');
+  useEffect(()=>{ getDoc(doc(db,'settings','platform')).then(snapshot=>{if(snapshot.exists()) setSettings(current=>({...current,...snapshot.data(),notifications:{...current.notifications,...snapshot.data().notifications},security:{...current.security,...snapshot.data().security},backup:{...current.backup,...snapshot.data().backup},featureFlags:{...current.featureFlags,...snapshot.data().featureFlags},paymentMethods:{...current.paymentMethods,...snapshot.data().paymentMethods}} as Settings));}); },[]);
+  const save=async()=>{setSaving(true);try{await setDoc(doc(db,'settings','platform'),{...settings,updatedAt:new Date().toISOString()},{merge:true});setSaved(true);window.setTimeout(()=>setSaved(false),2500);}finally{setSaving(false)}};
+  const changeAccount=async()=>{setAccountError('');setAccountMessage('');if(!credentials.currentPassword){setAccountError('Current password is required.');return}if(credentials.newPassword!==credentials.confirmPassword){setAccountError('New passwords do not match.');return}setAccountBusy(true);try{await changeAdminCredentials({currentPassword:credentials.currentPassword,newEmail:credentials.newEmail||undefined,newPassword:credentials.newPassword||undefined});setCredentials({currentPassword:'',newEmail:'',newPassword:'',confirmPassword:''});setAccountMessage(credentials.newEmail?'Verification was sent to the new email. Password changes take effect immediately.':'Admin password updated.');}catch(issue){setAccountError(issue instanceof Error?issue.message:'Unable to update Admin account.')}finally{setAccountBusy(false)}};
+  const backup=async()=>{setBackingUp(true);try{const shopSnapshots=await getDocs(collection(db,'shops'));const rootNames=['users','subscriptionTransactions','systemAuditLogs','settings'];const roots=Object.fromEntries(await Promise.all(rootNames.map(async name=>[name,(await getDocs(collection(db,name))).docs.map(x=>({id:x.id,...x.data()}))])));const subNames=['products','employees','orders','expenses','paymentAccounts','branches','auditLogs','shifts','suppliers','purchases'];const shops=await Promise.all(shopSnapshots.docs.map(async shop=>({id:shop.id,...shop.data(),collections:Object.fromEntries(await Promise.all(subNames.map(async name=>[name,(await getDocs(collection(db,`shops/${shop.id}/${name}`))).docs.map(x=>({id:x.id,...x.data()}))])))})));downloadText(`ki3-backup-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify({version:1,exportedAt:new Date().toISOString(),...roots,shops},null,2),'application/json');}finally{setBackingUp(false)}};
+  const setPlan=(index:number,key:'monthlyFee'|'trialDays'|'active',value:number|boolean)=>setSettings({...settings,plans:settings.plans.map((plan,i)=>i===index?{...plan,[key]:value}:plan)});
+  const toggle=(group:'featureFlags'|'paymentMethods',key:string)=>setSettings({...settings,[group]:{...settings[group],[key]:!settings[group][key]}});
 
-  const [isBackingUp, setIsBackingUp] = useState(false);
-  const [backupDone, setBackupDone] = useState(false);
-  const settingsRef = useRef<HTMLDivElement>(null);
-  const accountEmail = firebaseUser?.email || '';
-  const [credentials, setCredentials] = useState({ currentPassword: '', newEmail: '', newPassword: '', confirmPassword: '' });
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [accountMessage, setAccountMessage] = useState('');
-  const [accountError, setAccountError] = useState('');
-
-  useEffect(() => {
-    getDoc(doc(db, 'settings', 'platform')).then(snapshot => {
-      const savedSettings = snapshot.data()?.tabs || {};
-      const values: string[] = savedSettings[activeTab] || [];
-      if (snapshot.data()?.basicPlanPrice) setBasicPlanPrice(snapshot.data()!.basicPlanPrice);
-      if (snapshot.data()?.premiumPlanPrice) setPremiumPlanPrice(snapshot.data()!.premiumPlanPrice);
-      settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([data-sensitive="true"]), select:not([data-sensitive="true"])').forEach((field, index) => {
-        if (values[index] !== undefined) field.value = values[index];
-      });
-    });
-  }, [activeTab]);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    const snapshot = await getDoc(doc(db, 'settings', 'platform'));
-    const savedSettings = snapshot.data()?.tabs || {};
-    const fields = settingsRef.current?.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([data-sensitive="true"]), select:not([data-sensitive="true"])');
-    savedSettings[activeTab] = fields ? Array.from(fields).map(field => (field as HTMLInputElement | HTMLSelectElement).value) : [];
-    await setDoc(doc(db, 'settings', 'platform'), { tabs: savedSettings, basicPlanPrice, premiumPlanPrice, updatedAt: new Date().toISOString() }, { merge: true });
-    setTimeout(() => {
-      setIsSaving(false);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    }, 800);
-  };
-
-  const handleAccountChange = async () => {
-    setAccountError(''); setAccountMessage('');
-    if (!credentials.currentPassword) { setAccountError('Current password is required.'); return; }
-    if (!credentials.newEmail.trim() && !credentials.newPassword) { setAccountError('Enter a new email or password.'); return; }
-    if (credentials.newEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(credentials.newEmail.trim())) { setAccountError('Enter a valid new email address.'); return; }
-    if (credentials.newPassword && credentials.newPassword.length < 8) { setAccountError('New password must contain at least 8 characters.'); return; }
-    if (credentials.newPassword !== credentials.confirmPassword) { setAccountError('New passwords do not match.'); return; }
-    setAccountBusy(true);
-    try {
-      await changeAdminCredentials({ currentPassword: credentials.currentPassword, newEmail: credentials.newEmail || undefined, newPassword: credentials.newPassword || undefined });
-      setCredentials({ currentPassword: '', newEmail: '', newPassword: '', confirmPassword: '' });
-      setAccountMessage(credentials.newEmail.trim() ? `A confirmation link was sent to ${credentials.newEmail.trim().toLowerCase()}. The Admin email changes after that link is opened.${credentials.newPassword ? ' The password was updated now.' : ''}` : 'Main Admin password updated successfully.');
-    } catch (issue) {
-      const message = issue instanceof Error ? issue.message : 'Unable to update the Admin account.';
-      setAccountError(message.includes('invalid-credential') || message.includes('wrong-password') ? 'Current password is incorrect.' : message.includes('email-already-in-use') ? 'That email is already being used by another account.' : message);
-    } finally { setAccountBusy(false); }
-  };
-
-  const handleBackup = async () => {
-    setIsBackingUp(true);
-    try {
-      const shopSnapshots = await getDocs(collection(db, 'shops'));
-      const shops = await Promise.all(shopSnapshots.docs.map(async shop => ({ id: shop.id, ...shop.data(),
-        products: (await getDocs(collection(db, `shops/${shop.id}/products`))).docs.map(item => ({ id: item.id, ...item.data() })),
-        employees: (await getDocs(collection(db, `shops/${shop.id}/employees`))).docs.map(item => ({ id: item.id, ...item.data() })),
-        orders: (await getDocs(collection(db, `shops/${shop.id}/orders`))).docs.map(item => ({ id: item.id, ...item.data() })),
-      })));
-      const backup = { exportedAt: new Date().toISOString(), shops };
-      downloadText(`ki3-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(backup, null, 2), 'application/json');
-      setIsBackingUp(false);
-      setBackupDone(true);
-      setTimeout(() => setBackupDone(false), 3000);
-    } catch { setIsBackingUp(false); }
-  };
-
-  return (
-    <DashboardLayout role="ADMIN">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">System Settings</h1>
-          <p className="text-slate-500">Configure global platform preferences and integrations.</p>
-        </div>
-        <Button className="gap-2 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleSave} disabled={isSaving}>
-          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-          {isSaving ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="space-y-2">
-          <SettingTab icon={Globe} label="General Settings" active={activeTab === 'General Settings'} onClick={() => setActiveTab('General Settings')} />
-          <SettingTab icon={Shield} label="Security & Access" active={activeTab === 'Security & Access'} onClick={() => setActiveTab('Security & Access')} />
-          <SettingTab icon={CreditCard} label="Payment Gateways" active={activeTab === 'Payment Gateways'} onClick={() => setActiveTab('Payment Gateways')} />
-          <SettingTab icon={Bell} label="Notifications (SMTP/SMS)" active={activeTab === 'Notifications (SMTP/SMS)'} onClick={() => setActiveTab('Notifications (SMTP/SMS)')} />
-          <SettingTab icon={Database} label="Backups & Data" active={activeTab === 'Backups & Data'} onClick={() => setActiveTab('Backups & Data')} />
-        </div>
-
-        <div ref={settingsRef} className="md:col-span-2 space-y-6">
-          {activeTab === 'General Settings' && (
-            <>
-              <Card className="p-6">
-                <h3 className="text-lg font-bold text-slate-900 mb-6">General Information</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Platform Name</label>
-                    <Input defaultValue="KI3 POS" className="max-w-md bg-white border-slate-200" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Support Email</label>
-                    <Input defaultValue="support@ki3.com" className="max-w-md bg-white border-slate-200" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Default Currency</label>
-                    <select className="flex h-12 w-full max-w-md rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-                      <option value="MMK">Myanmar Kyat (MMK)</option>
-                      <option value="USD">US Dollar (USD)</option>
-                    </select>
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="p-6">
-                <h3 className="text-lg font-bold text-slate-900 mb-6">Subscription Plans</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div>
-                      <h4 className="font-bold text-slate-900">Basic Plan</h4>
-                      <p className="text-xs text-slate-500 mt-1">Single store, limited features</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {editingPlan === 'Basic' ? (
-                        <div className="flex items-center gap-2">
-                          <Input 
-                            value={basicPlanPrice} 
-                            onChange={(e) => setBasicPlanPrice(e.target.value)}
-                            className="w-24 h-8 text-sm bg-white"
-                          />
-                          <span className="text-sm font-bold text-slate-500">MMK / mo</span>
-                          <Button size="sm" className="h-8 bg-blue-600 text-white hover:bg-blue-700" onClick={() => setEditingPlan(null)}>Save</Button>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="font-black text-slate-900">{basicPlanPrice} MMK / mo</span>
-                          <Button variant="outline" className="h-8 text-xs" onClick={() => setEditingPlan('Basic')}>Edit</Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div>
-                      <h4 className="font-bold text-slate-900">Premium Plan</h4>
-                      <p className="text-xs text-slate-500 mt-1">Unlimited features, priority support</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {editingPlan === 'Premium' ? (
-                        <div className="flex items-center gap-2">
-                          <Input 
-                            value={premiumPlanPrice} 
-                            onChange={(e) => setPremiumPlanPrice(e.target.value)}
-                            className="w-24 h-8 text-sm bg-white"
-                          />
-                          <span className="text-sm font-bold text-slate-500">MMK / mo</span>
-                          <Button size="sm" className="h-8 bg-blue-600 text-white hover:bg-blue-700" onClick={() => setEditingPlan(null)}>Save</Button>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="font-black text-slate-900">{premiumPlanPrice} MMK / mo</span>
-                          <Button variant="outline" className="h-8 text-xs" onClick={() => setEditingPlan('Premium')}>Edit</Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </>
-          )}
-
-          {activeTab === 'Security & Access' && (<>
-            <Card className="p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-6">Security Settings</h3>
-              <p className="text-slate-500">Configure password policies, 2FA, and session timeouts here.</p>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Session Timeout (minutes)</label>
-                  <Input defaultValue="30" type="number" className="max-w-md bg-white border-slate-200" />
-                </div>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <h3 className="text-lg font-bold text-slate-900">Main Admin Account</h3>
-              <p className="mt-1 text-sm text-slate-500">Changing the email or password requires the current password. Passwords are sent only to Firebase Authentication and are never stored in Firestore.</p>
-              <div className="mt-5 space-y-4">
-                <div><label className="block text-sm font-bold text-slate-700 mb-2">Current Admin Email</label><Input data-sensitive="true" value={accountEmail || firebaseUser?.email || ''} disabled /></div>
-                <div><label className="block text-sm font-bold text-slate-700 mb-2">Current Password</label><Input data-sensitive="true" type="password" autoComplete="current-password" value={credentials.currentPassword} onChange={event => setCredentials({ ...credentials, currentPassword: event.target.value })} /></div>
-                <div><label className="block text-sm font-bold text-slate-700 mb-2">New Email (optional)</label><Input data-sensitive="true" type="email" autoComplete="email" placeholder="new-admin@example.com" value={credentials.newEmail} onChange={event => setCredentials({ ...credentials, newEmail: event.target.value })} /></div>
-                <div className="grid md:grid-cols-2 gap-4"><div><label className="block text-sm font-bold text-slate-700 mb-2">New Password (optional)</label><Input data-sensitive="true" type="password" minLength={8} autoComplete="new-password" value={credentials.newPassword} onChange={event => setCredentials({ ...credentials, newPassword: event.target.value })} /></div><div><label className="block text-sm font-bold text-slate-700 mb-2">Confirm New Password</label><Input data-sensitive="true" type="password" minLength={8} autoComplete="new-password" value={credentials.confirmPassword} onChange={event => setCredentials({ ...credentials, confirmPassword: event.target.value })} /></div></div>
-                {accountMessage && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{accountMessage}</p>}
-                {accountError && <p className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{accountError}</p>}
-                <Button onClick={handleAccountChange} disabled={accountBusy}>{accountBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}{accountBusy ? 'Updating…' : 'Update Admin Login'}</Button>
-              </div>
-            </Card>
-          </>)}
-
-          {activeTab === 'Payment Gateways' && (
-             <Card className="p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-6">Payment Integrations</h3>
-              <p className="text-slate-500 mb-6">Manage mobile wallets and banking integrations here.</p>
-               <div className="mt-4 space-y-4">
-                 
-                 <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-bold text-slate-900">KBZ Pay (KPay)</h4>
-                        <p className="text-xs text-slate-500 mt-1">Accept payments via KBZ Pay</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">Active</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Merchant Phone Number</label>
-                      <Input defaultValue="09-123456789" className="max-w-md bg-white border-slate-200" placeholder="e.g. 09..." />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-bold text-slate-900">AYA Pay</h4>
-                        <p className="text-xs text-slate-500 mt-1">Accept payments via AYA Pay</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">Active</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Merchant Phone Number</label>
-                      <Input defaultValue="09-456789123" className="max-w-md bg-white border-slate-200" placeholder="e.g. 09..." />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-bold text-slate-900">WavePay</h4>
-                        <p className="text-xs text-slate-500 mt-1">Accept payments via Wave Money</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">Active</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Merchant Phone Number</label>
-                      <Input defaultValue="09-987654321" className="max-w-md bg-white border-slate-200" placeholder="e.g. 09..." />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-bold text-slate-900">Bank Transfer</h4>
-                        <p className="text-xs text-slate-500 mt-1">Accept direct bank transfers</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">Active</span>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Bank Name</label>
-                        <Input defaultValue="KBZ Bank" className="bg-white border-slate-200" placeholder="e.g. KBZ, CB, AYA" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Account Number</label>
-                        <Input defaultValue="1234567890123456" className="bg-white border-slate-200" placeholder="Account Number" />
-                      </div>
-                    </div>
-                  </div>
-
-               </div>
-            </Card>
-          )}
-
-          {activeTab === 'Notifications (SMTP/SMS)' && (
-             <Card className="p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-6">Notification Settings</h3>
-              <p className="text-slate-500">Configure email and SMS delivery services.</p>
-               <div className="mt-4 space-y-4">
-                 <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">SMTP Host</label>
-                    <Input defaultValue="smtp.mailgun.org" className="max-w-md bg-white border-slate-200" />
-                  </div>
-               </div>
-            </Card>
-          )}
-
-          {activeTab === 'Backups & Data' && (
-             <Card className="p-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-6">Database Backups</h3>
-              <p className="text-slate-500">Configure automated backups and data retention policies.</p>
-               <div className="mt-4 space-y-4">
-                  <Button variant="outline" className="gap-2" onClick={handleBackup} disabled={isBackingUp}>
-                    {isBackingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : backupDone ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Database className="w-4 h-4" />}
-                    {isBackingUp ? 'Backing up...' : backupDone ? 'Backup Complete' : 'Run Manual Backup'}
-                  </Button>
-               </div>
-            </Card>
-          )}
-
-        </div>
-      </div>
-    </DashboardLayout>
-  );
+  return <DashboardLayout role="ADMIN"><div className="flex justify-between items-end mb-8"><div><h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">Global Settings</h1><p className="text-slate-500">Platform-wide branding, subscriptions, security and operations.</p></div><Button className="bg-blue-600 text-white" onClick={save} disabled={saving}>{saving?<Loader2 className="w-4 h-4 mr-2 animate-spin"/>:saved?<CheckCircle2 className="w-4 h-4 mr-2"/>:<Save className="w-4 h-4 mr-2"/>}{saving?'Saving…':saved?'Saved':'Save Changes'}</Button></div>
+    <div className="grid md:grid-cols-4 gap-8"><nav className="space-y-2">{tabs.map(([name,Icon])=><button key={name} onClick={()=>setActive(name)} className={`w-full flex gap-3 px-4 py-3 rounded-xl text-sm font-bold ${active===name?'bg-white shadow-sm text-blue-600':'text-slate-500 hover:bg-white'}`}><Icon className="w-5 h-5"/>{name}</button>)}</nav><div className="md:col-span-3 space-y-6">
+      {active==='General'&&<><Section title="Branding & Locale"><Grid><Field label="System Name"><Input value={settings.systemName} onChange={e=>setSettings({...settings,systemName:e.target.value})}/></Field><Field label="Support Email"><Input type="email" value={settings.supportEmail} onChange={e=>setSettings({...settings,supportEmail:e.target.value})}/></Field><Field label="Logo URL"><Input value={settings.logo||''} onChange={e=>setSettings({...settings,logo:e.target.value})}/></Field><Field label="Favicon URL"><Input value={settings.favicon||''} onChange={e=>setSettings({...settings,favicon:e.target.value})}/></Field><Field label="Default Currency"><Select value={settings.currency} onChange={value=>setSettings({...settings,currency:value})} values={['MMK','USD','THB']}/></Field><Field label="Default Language"><Select value={settings.language} onChange={value=>setSettings({...settings,language:value})} values={['en','my']}/></Field><Field label="Default Timezone"><Select value={settings.timezone} onChange={value=>setSettings({...settings,timezone:value})} values={['Asia/Yangon','Asia/Bangkok','UTC']}/></Field><Field label="Default Tax %"><Input type="number" value={settings.defaultTaxRate} onChange={e=>setSettings({...settings,defaultTaxRate:Number(e.target.value)})}/></Field></Grid><Check label="Tax prices are inclusive" checked={settings.taxInclusive} onChange={value=>setSettings({...settings,taxInclusive:value})}/></Section></>}
+      {active==='Subscriptions'&&<Section title="Subscription Plans & Rules"><Grid><Field label="Trial Period (days)"><Input type="number" value={settings.trialPeriodDays} onChange={e=>setSettings({...settings,trialPeriodDays:Number(e.target.value)})}/></Field><Field label="Grace Period (days)"><Input type="number" value={settings.gracePeriodDays} onChange={e=>setSettings({...settings,gracePeriodDays:Number(e.target.value)})}/></Field></Grid><div className="space-y-3 mt-5">{settings.plans.map((plan,index)=><div key={plan.id} className="grid md:grid-cols-4 items-end gap-3 p-4 bg-slate-50 rounded-2xl"><div><p className="font-bold">{plan.name}</p><p className="text-xs text-slate-400">{plan.id}</p></div><Field label="Monthly Fee"><Input type="number" value={plan.monthlyFee} onChange={e=>setPlan(index,'monthlyFee',Number(e.target.value))}/></Field><Field label="Plan Trial Days"><Input type="number" value={plan.trialDays} onChange={e=>setPlan(index,'trialDays',Number(e.target.value))}/></Field><Check label="Active" checked={plan.active} onChange={value=>setPlan(index,'active',value)}/></div>)}</div></Section>}
+      {active==='Notifications'&&<><Section title="Email, SMS & Notification Settings"><Check label="Enable email notifications" checked={settings.notifications.emailEnabled} onChange={value=>setSettings({...settings,notifications:{...settings.notifications,emailEnabled:value}})}/><Check label="Enable SMS notifications" checked={settings.notifications.smsEnabled} onChange={value=>setSettings({...settings,notifications:{...settings.notifications,smsEnabled:value}})}/><Field label="Renewal reminder (days before expiry)"><Input className="max-w-xs mt-2" type="number" value={settings.notifications.renewalDays} onChange={e=>setSettings({...settings,notifications:{...settings.notifications,renewalDays:Number(e.target.value)}})}/></Field><Notice>SMTP passwords, SMS tokens and provider secret keys must be configured in the backend secret manager. This page intentionally never reads or stores those secrets.</Notice></Section><Section title="Subscription Payment Settings"><div className="grid sm:grid-cols-2 gap-3">{Object.entries(settings.paymentMethods).map(([key,value])=><div key={key}><Check label={key} checked={Boolean(value)} onChange={()=>toggle('paymentMethods',key)}/></div>)}</div><Notice>Tenant KPay, Wave and bank account numbers/QR codes remain isolated inside each shop’s payment settings.</Notice></Section></>}
+      {active==='Security & Roles'&&<><Section title="Security Settings"><Grid><Field label="Session Timeout (minutes)"><Input type="number" value={settings.security.sessionTimeoutMinutes} onChange={e=>setSettings({...settings,security:{...settings.security,sessionTimeoutMinutes:Number(e.target.value)}})}/></Field><Field label="Audit Retention (days)"><Input type="number" value={settings.security.auditRetentionDays} onChange={e=>setSettings({...settings,security:{...settings.security,auditRetentionDays:Number(e.target.value)}})}/></Field></Grid><Check label="Require strong passwords" checked={settings.security.requireStrongPasswords} onChange={value=>setSettings({...settings,security:{...settings.security,requireStrongPasswords:value}})}/><Notice>Role permissions are enforced by Firestore rules and backend authorization: Admin (platform), Owner (own tenant), Employee (owner-granted actions). UI visibility is not the security boundary.</Notice></Section><Section title="Main Admin Account"><p className="text-sm text-slate-500 mb-4">Credentials are sent only to Firebase Authentication and are never stored in Firestore.</p><Grid><Field label="Current Email"><Input value={firebaseUser?.email||''} disabled/></Field><Field label="Current Password"><Input type="password" value={credentials.currentPassword} onChange={e=>setCredentials({...credentials,currentPassword:e.target.value})}/></Field><Field label="New Email (optional)"><Input type="email" value={credentials.newEmail} onChange={e=>setCredentials({...credentials,newEmail:e.target.value})}/></Field><Field label="New Password (optional)"><Input type="password" value={credentials.newPassword} onChange={e=>setCredentials({...credentials,newPassword:e.target.value})}/></Field><Field label="Confirm Password"><Input type="password" value={credentials.confirmPassword} onChange={e=>setCredentials({...credentials,confirmPassword:e.target.value})}/></Field></Grid>{accountMessage&&<p className="mt-3 text-sm text-emerald-600">{accountMessage}</p>}{accountError&&<p className="mt-3 text-sm text-red-600">{accountError}</p>}<Button className="mt-4" onClick={changeAccount} disabled={accountBusy}>{accountBusy?'Updating…':'Update Admin Login'}</Button></Section><Section title="API Keys"><Notice>API keys are server-only secrets. Configure them through Firebase/Google Cloud Secret Manager; the frontend contains no secret-value fields and cannot read stored keys.</Notice></Section></>}
+      {active==='Features & Operations'&&<><Section title="Feature Flags"><div className="grid sm:grid-cols-2 gap-3">{Object.entries(settings.featureFlags).map(([key,value])=><div key={key}><Check label={key} checked={Boolean(value)} onChange={()=>toggle('featureFlags',key)}/></div>)}</div></Section><Section title="Maintenance Mode"><Check label="Enable maintenance mode" checked={settings.maintenanceMode} onChange={value=>setSettings({...settings,maintenanceMode:value})}/><Field label="Maintenance Message"><Input className="mt-2" value={settings.maintenanceMessage} onChange={e=>setSettings({...settings,maintenanceMessage:e.target.value})}/></Field></Section><Section title="Operational Controls"><p className="text-sm text-slate-500">Owner/employee access, tenant suspension, renewals, audited impersonation requests and subscription payment settings are managed from Tenant Shops. Notification delivery and scheduled backups require deployed backend jobs.</p></Section></>}
+      {active==='Backups & Health'&&<><Section title="Backup & Data Retention"><Grid><Field label="External Backup Frequency"><Select value={settings.backup.frequency} onChange={value=>setSettings({...settings,backup:{...settings.backup,frequency:value}})} values={['DAILY','WEEKLY','MONTHLY']}/></Field><Field label="Backup Retention (days)"><Input type="number" value={settings.backup.retentionDays} onChange={e=>setSettings({...settings,backup:{...settings.backup,retentionDays:Number(e.target.value)}})}/></Field><Field label="Data Retention (days)"><Input type="number" value={settings.dataRetentionDays} onChange={e=>setSettings({...settings,dataRetentionDays:Number(e.target.value)})}/></Field></Grid><Check label="Store external backup preference" checked={settings.backup.enabled} onChange={value=>setSettings({...settings,backup:{...settings.backup,enabled:value}})}/><Notice>Spark plan uses the manual JSON backup below. Automatic schedules need a separately configured external runner; this switch only stores that preference.</Notice><Button variant="outline" className="mt-4" onClick={backup} disabled={backingUp}><Database className="w-4 h-4 mr-2"/>{backingUp?'Preparing backup…':'Download Manual Backup'}</Button></Section><Section title="System Health, Audit & Error Logs"><div className="grid sm:grid-cols-3 gap-3"><Stat label="Database" value="Connected"/><Stat label="Audit events" value={String(auditLogs.length)}/><Stat label="Error logs" value={String(errorLogs.length)}/></div><div className="mt-5 max-h-56 overflow-auto divide-y">{auditLogs.slice(0,10).map(log=><div key={log.id} className="py-3"><p className="text-sm font-bold">{log.action}</p><p className="text-xs text-slate-400">{log.detail}</p></div>)}{auditLogs.length===0&&<p className="text-sm text-slate-400">No audit events recorded.</p>}</div></Section></>}
+    </div></div>
+  </DashboardLayout>;
 }
 
-function SettingTab({ icon: Icon, label, active, onClick }: any) {
-  return (
-    <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors ${active ? 'bg-white shadow-sm border border-slate-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}>
-      <Icon className="w-5 h-5" />
-      {label}
-    </button>
-  );
-}
+function Section({title,children}:{title:string;children:React.ReactNode}){return <Card className="p-6"><h3 className="text-lg font-bold mb-5">{title}</h3>{children}</Card>}
+function Grid({children}:{children:React.ReactNode}){return <div className="grid md:grid-cols-2 gap-4">{children}</div>}
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="block"><span className="block text-sm font-bold text-slate-700 mb-2">{label}</span>{children}</label>}
+function Check({label,checked,onChange}:{label:string;checked:boolean;onChange(value:boolean):void}){return <label className="flex items-center justify-between gap-4 p-3 rounded-xl bg-slate-50"><span className="text-sm font-semibold capitalize">{label}</span><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} className="h-5 w-5 accent-blue-600"/></label>}
+function Select({value,onChange,values}:{value:string;onChange(value:string):void;values:string[]}){return <select value={value} onChange={e=>onChange(e.target.value)} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4">{values.map(x=><option key={x}>{x}</option>)}</select>}
+function Notice({children}:{children:React.ReactNode}){return <p className="mt-4 rounded-xl bg-blue-50 p-4 text-sm text-blue-700">{children}</p>}
+function Stat({label,value}:{label:string;value:string}){return <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs uppercase text-slate-400 font-bold">{label}</p><p className="text-xl font-black mt-1">{value}</p></div>}

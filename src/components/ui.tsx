@@ -1,6 +1,7 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { AlertCircle, Inbox, Loader2 } from 'lucide-react';
 
 export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <motion.div 
@@ -65,3 +66,15 @@ export const Badge = ({ children, className, variant = 'default' }: { children: 
     </span>
   );
 };
+
+export function DataState({ loading, error, empty, emptyMessage = 'No records yet.' }: { loading?: boolean; error?: string | null; empty?: boolean; emptyMessage?: string }) {
+  if (loading) return <div role="status" className="flex items-center justify-center gap-2 p-8 text-sm font-medium text-slate-500"><Loader2 className="h-4 w-4 animate-spin text-blue-600" />Loading data…</div>;
+  if (error) return <div role="alert" className="m-4 flex items-start gap-2 rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>Unable to load data. {error}</span></div>;
+  if (empty) return <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-slate-400"><Inbox className="h-6 w-6" /><span>{emptyMessage}</span></div>;
+  return null;
+}
+
+export function TableStateRow({ columns, loading, error, empty, emptyMessage }: { columns: number; loading?: boolean; error?: string | null; empty?: boolean; emptyMessage?: string }) {
+  if (!loading && !error && !empty) return null;
+  return <tr><td colSpan={columns}><DataState loading={loading} error={error} empty={empty} emptyMessage={emptyMessage} /></td></tr>;
+}

@@ -2,6 +2,8 @@ export type Role = 'ADMIN' | 'OWNER' | 'EMPLOYEE';
 export type OrderStatus = 'PENDING' | 'PREPARING' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
 export type BusinessType = 'RESTAURANT' | 'RETAIL' | 'FASHION' | 'BAKERY' | 'PHOTOBOOTH' | 'SERVICE' | 'OTHER';
 export type PaymentKind = 'CASH' | 'KPAY' | 'WAVE' | 'BANK';
+export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRING_SOON' | 'EXPIRED' | 'SUSPENDED' | 'CANCELLED';
+export type TenantSystemStatus = 'ACTIVE' | 'STOPPED' | 'ARCHIVED';
 
 export interface AppUser {
   id: string;
@@ -11,6 +13,7 @@ export interface AppUser {
   shopId?: string;
   branchId?: string;
   branchName?: string;
+  permissions?: EmployeePermissions;
 }
 
 export interface Shop {
@@ -22,17 +25,81 @@ export interface Shop {
   phone: string;
   address?: string;
   plan: string;
-  status: 'ACTIVE' | 'SUSPENDED' | 'EXPIRED';
+  status: SubscriptionStatus;
+  systemStatus?: TenantSystemStatus;
   expiry: string;
+  subscriptionStart?: string;
+  monthlyFee?: number;
+  trialEndsAt?: string;
+  archivedAt?: string;
+  updatedAt?: string;
   createdAt?: string;
   businessType?: BusinessType;
 }
 
+export interface SubscriptionTransaction {
+  id: string;
+  shopId: string;
+  shopName: string;
+  plan: string;
+  type: 'INITIAL' | 'RENEWAL' | 'EXTENSION' | 'ADJUSTMENT';
+  status: 'PAID' | 'OUTSTANDING' | 'VOID';
+  amount: number;
+  currency: string;
+  periodStart: string;
+  periodEnd: string;
+  paymentMethod?: string;
+  reference?: string;
+  paidAt?: string;
+  createdAt: string;
+  actorId?: string;
+  actorName?: string;
+}
+
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  monthlyFee: number;
+  active: boolean;
+  trialDays: number;
+}
+
+export interface PlatformSettings {
+  systemName: string;
+  supportEmail: string;
+  logo?: string;
+  favicon?: string;
+  currency: string;
+  language: string;
+  timezone: string;
+  defaultTaxRate: number;
+  trialPeriodDays: number;
+  gracePeriodDays: number;
+  maintenanceMode: boolean;
+  dataRetentionDays: number;
+  plans: SubscriptionPlan[];
+  featureFlags: Record<string, boolean>;
+  notifications: { emailEnabled: boolean; smsEnabled: boolean; renewalDays: number };
+  security: { sessionTimeoutMinutes: number; requireStrongPasswords: boolean; auditRetentionDays: number };
+  backup: { enabled: boolean; frequency: string; retentionDays: number };
+}
+
 export interface EmployeePermissions {
+  view: boolean;
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+  export: boolean;
+  approve: boolean;
   discount: boolean;
   refund: boolean;
+  viewCost: boolean;
+  viewProfit: boolean;
+  accessReports: boolean;
+  manageSettings: boolean;
   editStock: boolean;
   viewOrders: boolean;
+  recordExpenses: boolean;
 }
 
 export interface Employee {
@@ -65,10 +132,24 @@ export interface Product {
   sku: string;
   barcode?: string;
   category: string;
+  brand?: string;
+  unit?: string;
+  supplierId?: string;
+  supplierName?: string;
   price: number;
   cost: number;
+  discount?: number;
+  tax?: number;
+  onlinePrice?: number;
+  inStorePrice?: number;
   stock: number;
   minStock: number;
+  maxStock?: number;
+  variants?: Array<{ id: string; name: string; sku?: string; barcode?: string; price?: number }>;
+  description?: string;
+  active?: boolean;
+  availableOnline?: boolean;
+  availableInStore?: boolean;
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   image: string;
   shopId: string;
@@ -191,11 +272,17 @@ export interface AuditLog {
 export interface StockMovement {
   id: string;
   shopId: string;
+  orderId?: string;
   productId: string;
   productName: string;
-  type: 'SALE' | 'REFUND' | 'PURCHASE' | 'ADJUSTMENT';
+  type: 'SALE' | 'REFUND' | 'PURCHASE' | 'ADJUSTMENT' | 'STOCK_IN' | 'STOCK_OUT' | 'COUNT';
   quantity: number;
+  before?: number;
   balance: number;
+  reason?: string;
+  actorId?: string;
+  actorName?: string;
+  sourceId?: string;
   note?: string;
   createdAt: string;
 }
@@ -215,5 +302,6 @@ export interface Customer {
   totalSpent?: number;
   visits?: number;
   loyaltyPoints?: number;
+  outstandingCredit?: number;
   updatedAt: string;
 }
