@@ -1,7 +1,8 @@
 export type Role = 'ADMIN' | 'OWNER' | 'EMPLOYEE';
-export type OrderStatus = 'PENDING' | 'PREPARING' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
+export type OrderStatus = 'PENDING' | 'PREPARING' | 'HELD' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
 export type BusinessType = 'RESTAURANT' | 'RETAIL' | 'FASHION' | 'BAKERY' | 'PHOTOBOOTH' | 'SERVICE' | 'OTHER';
-export type PaymentKind = 'CASH' | 'KPAY' | 'WAVE' | 'BANK';
+export type PaymentKind = 'CASH' | 'BANK' | 'CARD' | 'KPAY' | 'WAVE' | 'AYAPAY' | 'CBPAY' | 'CREDIT' | 'SPLIT';
+export type OrderChannel = 'ONLINE' | 'IN_STORE';
 export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRING_SOON' | 'EXPIRED' | 'SUSPENDED' | 'CANCELLED';
 export type TenantSystemStatus = 'ACTIVE' | 'STOPPED' | 'ARCHIVED';
 
@@ -177,6 +178,15 @@ export interface OrderItem {
   price: number;
 }
 
+export interface PaymentAllocation {
+  kind: Exclude<PaymentKind, 'SPLIT'>;
+  label: string;
+  amount: number;
+  accountId?: string;
+  accountNumber?: string;
+  reference?: string;
+}
+
 export interface Order {
   id: string;
   shopId: string;
@@ -188,6 +198,7 @@ export interface Order {
   subtotal: number;
   tax: number;
   serviceCharge?: number;
+  deliveryCharge?: number;
   discount: number;
   total: number;
   paymentMethod: string;
@@ -196,8 +207,10 @@ export interface Order {
   paymentAccountLabel?: string;
   paymentAccountNumber?: string;
   paymentReference?: string;
+  payments?: PaymentAllocation[];
+  notes?: string;
   status: OrderStatus;
-  type: 'ONLINE' | 'OFFLINE';
+  type: 'ONLINE' | 'IN_STORE' | 'OFFLINE';
   employeeId?: string;
   shiftId?: string;
   createdAt: string;
@@ -205,6 +218,23 @@ export interface Order {
   refundReason?: string;
   cancelledAt?: string;
   cancelReason?: string;
+}
+
+export interface HeldOrder {
+  id: string;
+  shopId: string;
+  branchId: string;
+  branchName: string;
+  employeeId: string;
+  employeeName: string;
+  type: OrderChannel;
+  items: OrderItem[];
+  customer: string;
+  customerPhone?: string;
+  discountPercent: number;
+  deliveryCharge: number;
+  notes?: string;
+  heldAt: string;
 }
 
 export interface Shift {
@@ -293,6 +323,7 @@ export interface ShopSettings {
   serviceCharge: number;
   invoicePrefix: string;
   loyaltyPointsPer1000: number;
+  allowNegativeStock: boolean;
 }
 
 export interface Customer {

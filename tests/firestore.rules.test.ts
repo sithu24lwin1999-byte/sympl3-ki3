@@ -69,6 +69,20 @@ describeRules('Ki3 POS Firestore authorization', () => {
     await assertSucceeds(setDoc(doc(db, 'shops/shop-a/orders/new-order-allowed'), order));
   });
 
+  it('isolates held orders to the owner and the employee who created them', async () => {
+    const employeeDb = environment.authenticatedContext('employee-a').firestore();
+    const ownerDb = environment.authenticatedContext('owner-a').firestore();
+    const outsiderDb = environment.authenticatedContext('employee-b').firestore();
+    const held = { shopId: 'shop-a', employeeId: 'employee-a', items: [], heldAt: new Date().toISOString() };
+    await assertFails(setDoc(doc(employeeDb, 'shops/shop-a/heldOrders/held-a'), held));
+    await environment.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'shops/shop-a/employees/employee-a'), {
+      'permissions.create': true,
+    }));
+    await assertSucceeds(setDoc(doc(employeeDb, 'shops/shop-a/heldOrders/held-a'), held));
+    await assertSucceeds(getDoc(doc(ownerDb, 'shops/shop-a/heldOrders/held-a')));
+    await assertFails(getDoc(doc(outsiderDb, 'shops/shop-a/heldOrders/held-a')));
+  });
+
   it('enforces expense and stock permissions at the database boundary', async () => {
     const employeeDb = environment.authenticatedContext('employee-a').firestore();
     await assertFails(setDoc(doc(employeeDb, 'shops/shop-a/expenses/expense-a'), {
@@ -93,6 +107,19 @@ describeRules('Ki3 POS Firestore authorization', () => {
       transaction.update(productRef, { stock: 8, status: 'In Stock', lastMovementId: movementRef.id });
       transaction.set(movementRef, { shopId: 'shop-a', productId: 'product-a', productName: 'A', type: 'STOCK_IN', quantity: 3, before: 5, balance: 8, reason: 'Delivery received', createdAt: new Date().toISOString() });
     }));
+  });
+
+  it('allows negative checkout stock only after the shop setting is enabled', async () => {
+    const ownerDb = environment.authenticatedContext('owner-a').firestore();
+    const productRef = doc(ownerDb, 'shops/shop-a/products/product-a');
+    const attempt = (movementId: string) => runTransaction(ownerDb, async transaction => {
+      const movementRef = doc(ownerDb, `shops/shop-a/stockMovements/${movementId}`);
+      transaction.update(productRef, { stock: -1, status: 'Out of Stock', lastMovementId: movementRef.id });
+      transaction.set(movementRef, { shopId: 'shop-a', productId: 'product-a', productName: 'A', type: 'STOCK_OUT', quantity: -6, before: 5, balance: -1, reason: 'Negative-stock checkout', createdAt: new Date().toISOString() });
+    });
+    await assertFails(attempt('negative-blocked'));
+    await assertSucceeds(setDoc(doc(ownerDb, 'shops/shop-a/settings/general'), { allowNegativeStock: true }));
+    await assertSucceeds(attempt('negative-allowed'));
   });
 
   it('prevents owners from changing root authorization records', async () => {
