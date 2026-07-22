@@ -25,9 +25,9 @@ async function resolveUser(firebaseUser: FirebaseUser): Promise<AppUser> {
   }
   const snapshot = await getDoc(doc(db, 'users', firebaseUser.uid));
   if (!snapshot.exists()) throw new Error('This account has not been assigned to a shop yet.');
-  const data = snapshot.data() as { name: string; email: string; role: Role; shopId?: string; active?: boolean };
+  const data = snapshot.data() as { name: string; email: string; role: Role; shopId?: string; branchId?: string; branchName?: string; active?: boolean };
   if (data.active === false) throw new Error('This account is inactive.');
-  return { id: firebaseUser.uid, name: data.name, email: data.email, role: data.role, shopId: data.shopId };
+  return { id: firebaseUser.uid, name: data.name, email: data.email, role: data.role, shopId: data.shopId, branchId: data.branchId, branchName: data.branchName };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -78,7 +78,7 @@ export function useAuth() {
   return value;
 }
 
-export async function createManagedUser(input: { email: string; password: string; name: string; role: Role; shopId: string }) {
+export async function createManagedUser(input: { email: string; password: string; name: string; role: Role; shopId: string; branchId?: string; branchName?: string }) {
   const secondary = initializeApp(firebaseConfig, `provision-${Date.now()}`);
   try {
     const credential = await createUserWithEmailAndPassword(getAuth(secondary), input.email, input.password);
@@ -86,7 +86,8 @@ export async function createManagedUser(input: { email: string; password: string
     // Verification email delivery is best-effort and must not orphan the account.
     await sendEmailVerification(credential.user).catch(() => undefined);
     await setDoc(doc(db, 'users', credential.user.uid), {
-      name: input.name, email: input.email.toLowerCase(), role: input.role, shopId: input.shopId, active: true,
+      name: input.name, email: input.email.toLowerCase(), role: input.role, shopId: input.shopId,
+      branchId: input.branchId || 'main', branchName: input.branchName || 'Main Branch', active: true,
       createdAt: new Date().toISOString(),
     });
     return credential.user.uid;

@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Input, Badge } from '@/components/ui';
 import { Save, Store, Receipt, WalletCards, Plus, Trash2, Loader2, CheckCircle2, Building2 } from 'lucide-react';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/lib/auth';
-import { createRecord, deleteRecord, useLiveCollection, useLiveDocument } from '@/lib/firestore';
+import { createRecord, deleteRecord, setRecord, useLiveCollection, useLiveDocument } from '@/lib/firestore';
 import type { BusinessType, PaymentAccount, PaymentKind, Shop, ShopSettings } from '@/types';
 
 const defaults: ShopSettings = { businessType: 'RETAIL', taxRate: 5, serviceCharge: 0, invoicePrefix: 'KI3', loyaltyPointsPer1000: 10 };
@@ -31,6 +31,14 @@ export default function OwnerSettings() {
     setSaving(true);
     await setDoc(doc(db, `shops/${shopId}/settings/general`), { ...settings, updatedAt: new Date().toISOString() }, { merge: true });
     await updateDoc(doc(db, 'shops', shopId), { ...profile, businessType: settings.businessType, updatedAt: new Date().toISOString() });
+    if (settings.businessType === 'PHOTOBOOTH') {
+      const base = { category: 'Photobooth Services', cost: 0, price: 0, stock: 0, minStock: 0, status: 'In Stock', image: 'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=400&h=300&fit=crop', shopId, itemType: 'SERVICE', trackStock: false, updatedAt: new Date().toISOString() };
+      const [photo, costume] = await Promise.all([getDoc(doc(db, `shops/${shopId}/products/photobooth-service`)), getDoc(doc(db, `shops/${shopId}/products/costume-rental`))]);
+      await Promise.all([
+        photo.exists() ? Promise.resolve() : setRecord(`shops/${shopId}/products`, 'photobooth-service', { ...base, name: 'Photobooth ရိုက်ကူးခြင်း', sku: 'PHOTO-SERVICE', barcode: '' }),
+        costume.exists() ? Promise.resolve() : setRecord(`shops/${shopId}/products`, 'costume-rental', { ...base, name: 'ဝတ်စုံငှားခြင်း', sku: 'COSTUME-RENTAL', barcode: '' }),
+      ]);
+    }
     await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'SETTINGS_UPDATED', detail: activeTab, createdAt: new Date().toISOString() });
     setSaving(false); setSaved(true); window.setTimeout(() => setSaved(false), 1800);
   };
@@ -59,7 +67,7 @@ export default function OwnerSettings() {
         {activeTab === 'Profile' && <Card className="p-6 space-y-5">
           <h3 className="font-bold text-lg">Business Profile</h3>
           <div><label className="text-sm font-bold">Business type</label><select value={settings.businessType} onChange={e => setSettings({ ...settings, businessType: e.target.value as BusinessType })} className="mt-2 flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4">
-            <option value="RESTAURANT">Restaurant / Café</option><option value="RETAIL">General Retail</option><option value="FASHION">Fashion & Clothing</option><option value="BAKERY">Bakery</option><option value="SERVICE">Customer Service / Service Business</option><option value="OTHER">Other</option>
+            <option value="RESTAURANT">Restaurant / Café</option><option value="RETAIL">General Retail</option><option value="FASHION">Fashion & Clothing</option><option value="BAKERY">Bakery</option><option value="PHOTOBOOTH">Photobooth & Costume Rental</option><option value="SERVICE">Customer Service / Service Business</option><option value="OTHER">Other</option>
           </select></div>
           <div><label className="text-sm font-bold">Shop name</label><Input className="mt-2" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} /></div>
           <div className="grid md:grid-cols-2 gap-4"><div><label className="text-sm font-bold">Phone</label><Input className="mt-2" value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} /></div><div><label className="text-sm font-bold">Owner email</label><Input className="mt-2" value={shop?.ownerEmail || ''} disabled /></div></div>

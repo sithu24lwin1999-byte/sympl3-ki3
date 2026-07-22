@@ -12,7 +12,10 @@ KI3 POS is a multi-tenant shop-management and point-of-sale web app. It supports
 - Transactional stock deduction, purchase receiving, stock movements and refund restoration
 - Suppliers, purchases, expenses, loyalty points, audit logs and cash-shift reconciliation
 - Barcode checkout, employee permissions, configurable taxes/service charges and invoice printing
-- Business profiles for restaurants, retail, fashion, bakeries, service businesses and other shops
+- Business profiles for restaurants, retail, fashion, bakeries, photobooths, service businesses and other shops
+- Photobooth preset services for photo sessions and costume rental
+- Multi-branch employee assignment and daily branch income/expense/net-cash reporting
+- Employee-entered operating expenses and owner cash withdrawals
 - Password-reset email flow for owners and employees
 - Offline order queue with automatic reconnect sync
 - Live owner/admin dashboards, CSV/PDF reports and cloud-data backup

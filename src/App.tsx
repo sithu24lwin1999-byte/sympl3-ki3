@@ -14,6 +14,8 @@ const OwnerOrders = lazy(() => import('./pages/OwnerOrders'));
 const OwnerEmployees = lazy(() => import('./pages/OwnerEmployees'));
 const OwnerSettings = lazy(() => import('./pages/OwnerSettings'));
 const OwnerOperations = lazy(() => import('./pages/OwnerOperations'));
+const OwnerBranches = lazy(() => import('./pages/OwnerBranches'));
+const EmployeeExpenses = lazy(() => import('./pages/EmployeeExpenses'));
 const POSScreen = lazy(() => import('./pages/POSScreen'));
 
 function homeFor(role: Role) {
@@ -49,6 +51,8 @@ export default function App() {
           <Route path="/owner/employees" element={<Protected roles={['OWNER']}><OwnerEmployees /></Protected>} />
           <Route path="/owner/settings" element={<Protected roles={['OWNER']}><OwnerSettings /></Protected>} />
           <Route path="/owner/operations" element={<Protected roles={['OWNER']}><OwnerOperations /></Protected>} />
+          <Route path="/owner/branches" element={<Protected roles={['OWNER']}><OwnerBranches /></Protected>} />
+          <Route path="/expenses" element={<Protected roles={['EMPLOYEE']}><EmployeeExpenses /></Protected>} />
           <Route path="/pos" element={<Protected roles={['OWNER', 'EMPLOYEE']}><POSScreen /></Protected>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -5,16 +5,18 @@ import { Search, Plus, Edit, Trash2, ShieldCheck, Mail, Phone, X } from 'lucide-
 import { cn } from '@/lib/utils';
 import { createManagedUser, useAuth } from '@/lib/auth';
 import { createRecord, deleteRecord, setRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
-import type { Employee } from '@/types';
+import type { Branch, Employee } from '@/types';
 
 export default function OwnerEmployees() {
   const { user } = useAuth();
   const employeesPath = user?.shopId ? `shops/${user.shopId}/employees` : null;
   const [search, setSearch] = useState('');
   const { data: employees, loading, error } = useLiveCollection<Employee>(employeesPath);
+  const { data: storedBranches } = useLiveCollection<Branch>(user?.shopId ? `shops/${user.shopId}/branches` : null, 'createdAt');
+  const branches = storedBranches.some(branch => branch.id === 'main') ? storedBranches : [{ id: 'main', name: 'Main Branch' } as Branch, ...storedBranches];
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const emptyEmployee = { name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning', permissions: { discount: false, refund: false, editStock: false, viewOrders: true } };
+  const emptyEmployee = { name: '', role: 'Cashier', email: '', password: '', phone: '', shift: 'Morning', branchId: 'main', permissions: { discount: false, refund: false, editStock: false, viewOrders: true } };
   const [newEmployee, setNewEmployee] = useState(emptyEmployee);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -25,7 +27,8 @@ export default function OwnerEmployees() {
     setSaving(true); setFormError('');
     try {
       let employeeId = editingId;
-      if (!employeeId) employeeId = await createManagedUser({ email: newEmployee.email, password: newEmployee.password, name: newEmployee.name, role: 'EMPLOYEE', shopId: user.shopId });
+      const selectedBranch = branches.find(branch => branch.id === newEmployee.branchId);
+      if (!employeeId) employeeId = await createManagedUser({ email: newEmployee.email, password: newEmployee.password, name: newEmployee.name, role: 'EMPLOYEE', shopId: user.shopId, branchId: newEmployee.branchId, branchName: selectedBranch?.name || 'Main Branch' });
     const e = {
       name: newEmployee.name,
       role: newEmployee.role,
@@ -34,11 +37,13 @@ export default function OwnerEmployees() {
       status: 'Active',
       shift: newEmployee.shift,
       shopId: user.shopId,
+      branchId: newEmployee.branchId,
+      branchName: selectedBranch?.name || 'Main Branch',
       permissions: newEmployee.permissions,
       updatedAt: new Date().toISOString(),
     };
     await setRecord(employeesPath, employeeId, e);
-    await updateRecord('users', employeeId, { name: e.name, email: e.email.toLowerCase(), active: true });
+    await updateRecord('users', employeeId, { name: e.name, email: e.email.toLowerCase(), branchId: e.branchId, branchName: e.branchName, active: true });
     await createRecord(`shops/${user.shopId}/auditLogs`, { shopId: user.shopId, actorId: user.id, actorName: user.name, action: editingId ? 'EMPLOYEE_UPDATED' : 'EMPLOYEE_CREATED', detail: e.name, createdAt: new Date().toISOString() });
     setShowAddModal(false);
     setEditingId(null);
@@ -56,7 +61,7 @@ export default function OwnerEmployees() {
 
   const handleEdit = (employee: Employee) => {
     setEditingId(employee.id);
-    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, password: '', phone: employee.phone, shift: employee.shift, permissions: employee.permissions || emptyEmployee.permissions });
+    setNewEmployee({ name: employee.name, role: employee.role, email: employee.email, password: '', phone: employee.phone, shift: employee.shift, branchId: employee.branchId || 'main', permissions: employee.permissions || emptyEmployee.permissions });
     setShowAddModal(true);
   };
 
@@ -135,6 +140,7 @@ export default function OwnerEmployees() {
                       <span className="text-sm font-bold text-slate-700">{employee.role}</span>
                     </div>
                     <div className="text-xs text-slate-500">Shift: {employee.shift}</div>
+                    <div className="text-xs font-semibold text-blue-600">{employee.branchName || 'Main Branch'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <Badge 
@@ -237,6 +243,7 @@ export default function OwnerEmployees() {
                 <label className="block text-sm font-bold text-slate-700 mb-2">Temporary Password</label>
                 <Input type="password" minLength={8} value={newEmployee.password} onChange={(e) => setNewEmployee({...newEmployee, password: e.target.value})} className="bg-white border-slate-200" />
               </div>}
+              <div><label className="block text-sm font-bold text-slate-700 mb-2">Assigned Branch</label><select value={newEmployee.branchId} onChange={e => setNewEmployee({ ...newEmployee, branchId: e.target.value })} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4">{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Permissions</label>
                 <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3">

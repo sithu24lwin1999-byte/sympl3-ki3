@@ -1,6 +1,6 @@
 export type Role = 'ADMIN' | 'OWNER' | 'EMPLOYEE';
 export type OrderStatus = 'PENDING' | 'PREPARING' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
-export type BusinessType = 'RESTAURANT' | 'RETAIL' | 'FASHION' | 'BAKERY' | 'SERVICE' | 'OTHER';
+export type BusinessType = 'RESTAURANT' | 'RETAIL' | 'FASHION' | 'BAKERY' | 'PHOTOBOOTH' | 'SERVICE' | 'OTHER';
 export type PaymentKind = 'CASH' | 'KPAY' | 'WAVE' | 'BANK';
 
 export interface AppUser {
@@ -9,6 +9,8 @@ export interface AppUser {
   email: string;
   role: Role;
   shopId?: string;
+  branchId?: string;
+  branchName?: string;
 }
 
 export interface Shop {
@@ -42,7 +44,19 @@ export interface Employee {
   status: 'Active' | 'Inactive' | 'On Leave';
   shift: string;
   shopId: string;
+  branchId?: string;
+  branchName?: string;
   permissions?: EmployeePermissions;
+}
+
+export interface Branch {
+  id: string;
+  shopId: string;
+  name: string;
+  phone?: string;
+  address?: string;
+  active: boolean;
+  createdAt: string;
 }
 
 export interface Product {
@@ -84,6 +98,8 @@ export interface OrderItem {
 export interface Order {
   id: string;
   shopId: string;
+  branchId?: string;
+  branchName?: string;
   customer: string;
   customerPhone?: string;
   items: OrderItem[];
@@ -109,6 +125,8 @@ export interface Order {
 export interface Shift {
   id: string;
   shopId: string;
+  branchId?: string;
+  branchName?: string;
   employeeId: string;
   employeeName: string;
   openingCash: number;
@@ -145,6 +163,11 @@ export interface Purchase {
 export interface Expense {
   id: string;
   shopId: string;
+  branchId?: string;
+  branchName?: string;
+  type?: 'OPERATING' | 'OWNER_WITHDRAWAL';
+  actorId?: string;
+  actorName?: string;
   category: string;
   note: string;
   amount: number;

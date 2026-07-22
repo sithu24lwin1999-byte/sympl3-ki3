@@ -75,7 +75,7 @@ export default function OwnerOrders() {
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <h3 className="font-black text-lg text-slate-900">{order.id}</h3>
-                    <p className="text-xs text-slate-500 font-medium">{order.type} • {new Date(order.createdAt).toLocaleString()}</p>
+                    <p className="text-xs text-slate-500 font-medium">{order.branchName || 'Main Branch'} • {order.type} • {new Date(order.createdAt).toLocaleString()}</p>
                   </div>
                   <Badge 
                     className={cn(

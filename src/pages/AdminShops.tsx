@@ -7,7 +7,7 @@ import { createManagedUser } from '@/lib/auth';
 import { db } from '@/lib/firebase';
 import { deleteRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
 import { collection, doc, setDoc } from 'firebase/firestore';
-import type { Shop } from '@/types';
+import type { BusinessType, Shop } from '@/types';
 
 export default function AdminShops() {
   const location = useLocation();
@@ -25,7 +25,7 @@ export default function AdminShops() {
     }
   }, [location.state]);
 
-  const [newShop, setNewShop] = useState({ name: '', owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
+  const [newShop, setNewShop] = useState({ name: '', businessType: 'RETAIL' as BusinessType, owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -43,9 +43,17 @@ export default function AdminShops() {
       const shopRef = doc(collection(db, 'shops'));
       const ownerId = await createManagedUser({ email: cleaned.ownerEmail, password: cleaned.password, name: cleaned.owner, role: 'OWNER', shopId: shopRef.id });
       const { password: _password, ...shopData } = cleaned;
-      await setDoc(shopRef, { ...shopData, ownerId, ownerEmail: cleaned.ownerEmail, status: 'ACTIVE', businessType: 'RETAIL', expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10), createdAt: new Date().toISOString() });
+      await setDoc(shopRef, { ...shopData, ownerId, ownerEmail: cleaned.ownerEmail, status: 'ACTIVE', expiry: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10), createdAt: new Date().toISOString() });
+      await setDoc(doc(db, `shops/${shopRef.id}/branches/main`), { shopId: shopRef.id, name: 'Main Branch', phone: cleaned.phone, active: true, createdAt: new Date().toISOString() });
+      if (cleaned.businessType === 'PHOTOBOOTH') {
+        const service = { category: 'Photobooth Services', cost: 0, price: 0, stock: 0, minStock: 0, status: 'In Stock', image: 'https://images.unsplash.com/photo-1527529482837-4698179dc6ce?w=400&h=300&fit=crop', shopId: shopRef.id, itemType: 'SERVICE', trackStock: false, createdAt: new Date().toISOString() };
+        await Promise.all([
+          setDoc(doc(db, `shops/${shopRef.id}/products/photobooth-service`), { ...service, name: 'Photobooth ရိုက်ကူးခြင်း', sku: 'PHOTO-SERVICE', barcode: '' }),
+          setDoc(doc(db, `shops/${shopRef.id}/products/costume-rental`), { ...service, name: 'ဝတ်စုံငှားခြင်း', sku: 'COSTUME-RENTAL', barcode: '' }),
+        ]);
+      }
       setShowCreateModal(false);
-      setNewShop({ name: '', owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
+      setNewShop({ name: '', businessType: 'RETAIL', owner: '', ownerEmail: '', password: '', phone: '', plan: '30000 MMK' });
     } catch (issue) { setFormError(issue instanceof Error ? issue.message : 'Unable to create shop.'); }
     finally { setSaving(false); }
   };
@@ -194,7 +202,7 @@ export default function AdminShops() {
               </button>
             </div>
             
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Shop Name</label>
                 <Input 
@@ -204,6 +212,7 @@ export default function AdminShops() {
                   className="bg-white border-slate-200"
                 />
               </div>
+              <div><label className="block text-sm font-bold text-slate-700 mb-2">Business Type</label><select value={newShop.businessType} onChange={e => setNewShop({ ...newShop, businessType: e.target.value as BusinessType })} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4"><option value="RETAIL">General Retail</option><option value="RESTAURANT">Restaurant / Café</option><option value="FASHION">Fashion & Clothing</option><option value="BAKERY">Bakery</option><option value="PHOTOBOOTH">Photobooth & Costume Rental</option><option value="SERVICE">Service Business</option><option value="OTHER">Other</option></select></div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Owner Email</label>
                 <Input type="email" value={newShop.ownerEmail} onChange={(e) => setNewShop({...newShop, ownerEmail: e.target.value})} className="bg-white border-slate-200" />

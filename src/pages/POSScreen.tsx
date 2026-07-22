@@ -1,16 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, ShoppingBag, CreditCard, Banknote, Trash2, Plus, Minus, ScanBarcode, ArrowLeft, Printer, CheckCircle2, X } from 'lucide-react';
+import { Search, ShoppingBag, CreditCard, Banknote, Trash2, Plus, Minus, ScanBarcode, ArrowLeft, Printer, CheckCircle2, X, ReceiptText } from 'lucide-react';
 import { Button, Input, Card, Badge } from '@/components/ui';
 import { formatCurrency, cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
 import { completeSale, createRecord, setRecord, updateRecord, useLiveCollection, useLiveDocument } from '@/lib/firestore';
-import type { Employee, Order, PaymentAccount, PaymentKind, Product, Shift, Shop, ShopSettings } from '@/types';
+import type { Branch, Employee, Order, PaymentAccount, PaymentKind, Product, Shift, Shop, ShopSettings } from '@/types';
 import { calculateTotals } from '@/lib/pos';
 import { increment } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
 
 export default function POSScreen() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const shopId = user?.shopId || '';
   const shop = useLiveDocument<Shop>(shopId ? `shops/${shopId}` : null);
   const { data: products, error: productsError } = useLiveCollection<Product>(shopId ? `shops/${shopId}/products` : null);
@@ -19,8 +21,13 @@ export default function POSScreen() {
   const { data: paymentAccounts } = useLiveCollection<PaymentAccount>(shopId ? `shops/${shopId}/paymentAccounts` : null, 'createdAt');
   const settings = useLiveDocument<ShopSettings>(shopId ? `shops/${shopId}/settings/general` : null);
   const employee = useLiveDocument<Employee>(user?.role === 'EMPLOYEE' && shopId ? `shops/${shopId}/employees/${user.id}` : null);
+  const { data: storedBranches } = useLiveCollection<Branch>(shopId ? `shops/${shopId}/branches` : null, 'createdAt');
+  const branches = storedBranches.some(branch => branch.id === 'main') ? storedBranches : [{ id: 'main', name: 'Main Branch' } as Branch, ...storedBranches];
+  const [ownerBranchId, setOwnerBranchId] = useState(() => localStorage.getItem('ki3-owner-branch') || 'main');
+  const branchId = user?.role === 'EMPLOYEE' ? employee?.branchId || user.branchId || 'main' : ownerBranchId;
+  const branchName = branches.find(branch => branch.id === branchId)?.name || employee?.branchName || user?.branchName || 'Main Branch';
   const canDiscount = user?.role === 'OWNER' || employee?.permissions?.discount === true;
-  const activeShift = shifts.find(shift => shift.employeeId === user?.id && shift.status === 'OPEN');
+  const activeShift = shifts.find(shift => shift.employeeId === user?.id && shift.status === 'OPEN' && (shift.branchId || 'main') === branchId);
   const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState<{product: Product, quantity: number}[]>([]);
   const [search, setSearch] = useState('');
@@ -74,7 +81,7 @@ export default function POSScreen() {
     if (!activeShift) { setCheckoutError('Open a cashier shift before taking payment.'); return; }
     setBusy(true); setCheckoutError('');
     const order: Omit<Order, 'id'> = {
-      shopId, customer: customer || 'Walk-in', customerPhone,
+      shopId, branchId, branchName, customer: customer || 'Walk-in', customerPhone,
       items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: item.product.price })),
       subtotal: total,
       tax,
@@ -101,7 +108,7 @@ export default function POSScreen() {
         name: customer, phone: customerPhone, totalSpent: increment(grandTotal), visits: increment(1),
         loyaltyPoints: increment(Math.floor((grandTotal / 1000) * (settings?.loyaltyPointsPer1000 ?? 0))), updatedAt: new Date().toISOString(),
       });
-      if (navigator.onLine && user) await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SALE_COMPLETED', detail: `${id} · ${order.paymentMethod} · ${grandTotal} MMK`, createdAt: new Date().toISOString() });
+      if (navigator.onLine && user) await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SALE_COMPLETED', detail: `${branchName} · ${id} · ${order.paymentMethod} · ${grandTotal} MMK`, createdAt: new Date().toISOString() });
       setLastOrder({ id, ...order, grandTotal }); setShowReceipt(true); setCart([]); setDiscountPercent(0); setPaymentReference('');
     } catch (issue) { setCheckoutError(issue instanceof Error ? issue.message : 'Checkout failed.'); }
     finally { setBusy(false); }
@@ -135,7 +142,7 @@ export default function POSScreen() {
     } else {
       const openingCash = Number(window.prompt('Opening cash amount', '0'));
       if (Number.isFinite(openingCash)) {
-        await createRecord(`shops/${shopId}/shifts`, { shopId, employeeId: user.id, employeeName: user.name, openingCash, openedAt: new Date().toISOString(), status: 'OPEN' });
+        await createRecord(`shops/${shopId}/shifts`, { shopId, branchId, branchName, employeeId: user.id, employeeName: user.name, openingCash, openedAt: new Date().toISOString(), status: 'OPEN' });
         await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SHIFT_OPENED', detail: `Opening cash ${openingCash} MMK`, createdAt: new Date().toISOString() });
       }
     }
@@ -152,10 +159,12 @@ export default function POSScreen() {
             </Button>
           </button>
           <div className="w-px h-8 bg-slate-200" />
-          <h1 className="text-xl font-bold tracking-tight">KI3 POS • {shop?.name || 'Shop'}</h1>
+          <div><h1 className="text-xl font-bold tracking-tight">KI3 POS • {shop?.name || 'Shop'}</h1><p className="text-xs font-bold text-blue-600">{branchName}</p></div>
           <Badge className={navigator.onLine ? 'hidden md:inline-flex bg-emerald-100 text-emerald-800 border-none' : 'hidden md:inline-flex bg-amber-100 text-amber-800 border-none'}>{navigator.onLine ? 'Cloud Sync Active' : 'Offline Queue Active'}</Badge>
         </div>
         <div className="flex items-center space-x-4">
+          {user?.role === 'OWNER' && <select aria-label="Active branch" disabled={Boolean(activeShift)} value={branchId} onChange={event => { setOwnerBranchId(event.target.value); localStorage.setItem('ki3-owner-branch', event.target.value); }} className="h-10 max-w-36 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold">{branches.filter(branch => branch.active !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>}
+          {user?.role === 'EMPLOYEE' && <Button variant="outline" onClick={() => navigate('/expenses')} className="h-10 px-3"><ReceiptText className="w-4 h-4 md:mr-2" /><span className="hidden md:inline">Expense</span></Button>}
           <div className="text-right mr-4 hidden md:block">
             <p className="text-sm font-bold">Cashier: {user?.name}</p>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt, ClipboardList, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
@@ -26,6 +26,7 @@ const ownerNav: SidebarItem[] = [
   { icon: Store, label: 'Inventory', path: '/owner/inventory' },
   { icon: Users, label: 'Employees', path: '/owner/employees' },
   { icon: ClipboardList, label: 'Business Operations', path: '/owner/operations' },
+  { icon: Building2, label: 'Branches & Finance', path: '/owner/branches' },
   { icon: Settings, label: 'Settings', path: '/owner/settings' },
 ];
 

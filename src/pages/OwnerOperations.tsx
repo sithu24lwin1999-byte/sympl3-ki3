@@ -4,7 +4,7 @@ import { Badge, Button, Card, Input } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { createRecord, receivePurchase, useLiveCollection } from '@/lib/firestore';
 import { formatCurrency, cn } from '@/lib/utils';
-import type { AuditLog, Customer, Expense, Order, PaymentKind, Product, Purchase, Shift, StockMovement, Supplier } from '@/types';
+import type { AuditLog, Branch, Customer, Expense, Order, PaymentKind, Product, Purchase, Shift, StockMovement, Supplier } from '@/types';
 import { Banknote, Building2, ClipboardList, PackagePlus, Plus, ReceiptText, UserRound, Users } from 'lucide-react';
 
 type Tab = 'PAYMENTS' | 'PURCHASES' | 'EXPENSES' | 'CUSTOMERS' | 'SHIFTS' | 'HISTORY';
@@ -22,11 +22,13 @@ export default function OwnerOperations() {
   const { data: movements } = useLiveCollection<StockMovement>(path('stockMovements'), 'createdAt');
   const { data: audits } = useLiveCollection<AuditLog>(path('auditLogs'), 'createdAt');
   const { data: customers } = useLiveCollection<Customer>(path('customers'), 'updatedAt');
+  const { data: storedBranches } = useLiveCollection<Branch>(path('branches'), 'createdAt');
+  const branches = storedBranches.some(branch => branch.id === 'main') ? storedBranches : [{ id: 'main', name: 'Main Branch' } as Branch, ...storedBranches];
   const [tab, setTab] = useState<Tab>('PAYMENTS');
   const [paymentFilter, setPaymentFilter] = useState<'ALL' | PaymentKind>('ALL');
   const [supplier, setSupplier] = useState({ name: '', phone: '', address: '' });
   const [purchase, setPurchase] = useState({ supplierId: '', productId: '', quantity: '1', unitCost: '' });
-  const [expense, setExpense] = useState({ category: 'General', note: '', amount: '' });
+  const [expense, setExpense] = useState({ branchId: 'main', type: 'OPERATING' as 'OPERATING' | 'OWNER_WITHDRAWAL', category: 'General', note: '', amount: '' });
   const paidOrders = orders.filter(order => order.status === 'COMPLETED');
   const filteredPayments = paidOrders.filter(order => paymentFilter === 'ALL' || orderPaymentKind(order) === paymentFilter);
   const paymentTotals = useMemo(() => paidOrders.reduce<Record<string, number>>((totals, order) => {
@@ -49,8 +51,9 @@ export default function OwnerOperations() {
   };
   const addExpense = async () => {
     const amount = Number(expense.amount); if (amount <= 0) return;
-    await createRecord(`shops/${shopId}/expenses`, { ...expense, amount, shopId, createdAt: new Date().toISOString() });
-    await audit('EXPENSE_RECORDED', `${expense.category}: ${formatCurrency(amount)}`); setExpense({ category: 'General', note: '', amount: '' });
+    const selectedBranch = branches.find(branch => branch.id === expense.branchId);
+    await createRecord(`shops/${shopId}/expenses`, { ...expense, amount, shopId, branchName: selectedBranch?.name || 'Main Branch', actorId: user!.id, actorName: user!.name, createdAt: new Date().toISOString() });
+    await audit(expense.type === 'OWNER_WITHDRAWAL' ? 'OWNER_WITHDRAWAL_RECORDED' : 'EXPENSE_RECORDED', `${selectedBranch?.name || 'Main Branch'} · ${expense.category}: ${formatCurrency(amount)}`); setExpense({ branchId: 'main', type: 'OPERATING', category: 'General', note: '', amount: '' });
   };
 
   return <DashboardLayout role="OWNER">
@@ -75,11 +78,11 @@ export default function OwnerOperations() {
       <Card className="p-0 overflow-hidden"><DataTable headers={['Date', 'Supplier', 'Product', 'Qty', 'Total']} rows={purchases.map(item => [new Date(item.createdAt).toLocaleString(), item.supplierName, item.productName, item.quantity, formatCurrency(item.total)])} /></Card>
     </div>}
 
-    {tab === 'EXPENSES' && <div className="grid lg:grid-cols-3 gap-5"><Card className="p-5 space-y-3"><h3 className="font-bold">Record Expense</h3><Input placeholder="Category" value={expense.category} onChange={e => setExpense({ ...expense, category: e.target.value })} /><Input placeholder="Note" value={expense.note} onChange={e => setExpense({ ...expense, note: e.target.value })} /><Input type="number" min="0" placeholder="Amount" value={expense.amount} onChange={e => setExpense({ ...expense, amount: e.target.value })} /><Button onClick={addExpense} disabled={Number(expense.amount) <= 0}>Save Expense</Button></Card><Card className="lg:col-span-2 p-0 overflow-hidden"><DataTable headers={['Date', 'Category', 'Note', 'Amount']} rows={expenses.map(item => [new Date(item.createdAt).toLocaleString(), item.category, item.note || '—', formatCurrency(item.amount)])} /></Card></div>}
+    {tab === 'EXPENSES' && <div className="grid lg:grid-cols-3 gap-5"><Card className="p-5 space-y-3"><h3 className="font-bold">Record Expense</h3><Select value={expense.branchId} onChange={branchId => setExpense({ ...expense, branchId })} options={branches.map(branch => [branch.id, branch.name])} /><select value={expense.type} onChange={e => setExpense({ ...expense, type: e.target.value as typeof expense.type })} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4"><option value="OPERATING">Operating Expense</option><option value="OWNER_WITHDRAWAL">Owner Withdrawal</option></select><Input placeholder="Category" value={expense.category} onChange={e => setExpense({ ...expense, category: e.target.value })} /><Input placeholder="Note" value={expense.note} onChange={e => setExpense({ ...expense, note: e.target.value })} /><Input type="number" min="0" placeholder="Amount" value={expense.amount} onChange={e => setExpense({ ...expense, amount: e.target.value })} /><Button onClick={addExpense} disabled={Number(expense.amount) <= 0}>Save Expense</Button></Card><Card className="lg:col-span-2 p-0 overflow-hidden"><DataTable headers={['Date', 'Branch', 'Type', 'Category', 'Note', 'Amount']} rows={expenses.map(item => [new Date(item.createdAt).toLocaleString(), item.branchName || 'Main Branch', item.type === 'OWNER_WITHDRAWAL' ? 'Owner Withdrawal' : 'Operating', item.category, item.note || '—', formatCurrency(item.amount)])} /></Card></div>}
 
     {tab === 'CUSTOMERS' && <Card className="p-0 overflow-hidden"><div className="p-4 font-bold">Customer Directory & Loyalty</div><DataTable headers={['Customer', 'Phone', 'Visits', 'Total Spent', 'Points', 'Last Visit']} rows={customers.map(item => [item.name, item.phone, item.visits || 0, formatCurrency(item.totalSpent || 0), item.loyaltyPoints || 0, new Date(item.updatedAt).toLocaleString()])} /></Card>}
 
-    {tab === 'SHIFTS' && <Card className="p-0 overflow-hidden"><DataTable headers={['Employee', 'Opened', 'Status', 'Opening', 'Expected', 'Closing', 'Difference']} rows={shifts.map(item => [item.employeeName, new Date(item.openedAt).toLocaleString(), item.status, formatCurrency(item.openingCash), item.expectedCash == null ? '—' : formatCurrency(item.expectedCash), item.closingCash == null ? '—' : formatCurrency(item.closingCash), item.cashDifference == null ? '—' : formatCurrency(item.cashDifference)])} /></Card>}
+    {tab === 'SHIFTS' && <Card className="p-0 overflow-hidden"><DataTable headers={['Branch', 'Employee', 'Opened', 'Status', 'Opening', 'Expected', 'Closing', 'Difference']} rows={shifts.map(item => [item.branchName || 'Main Branch', item.employeeName, new Date(item.openedAt).toLocaleString(), item.status, formatCurrency(item.openingCash), item.expectedCash == null ? '—' : formatCurrency(item.expectedCash), item.closingCash == null ? '—' : formatCurrency(item.closingCash), item.cashDifference == null ? '—' : formatCurrency(item.cashDifference)])} /></Card>}
 
     {tab === 'HISTORY' && <div className="grid xl:grid-cols-2 gap-5"><Card className="p-0 overflow-hidden"><div className="p-4 font-bold">Stock Movements</div><DataTable headers={['Date', 'Product', 'Type', 'Change', 'Balance']} rows={movements.map(item => [new Date(item.createdAt).toLocaleString(), item.productName, item.type, item.quantity > 0 ? `+${item.quantity}` : item.quantity, item.balance])} /></Card><Card className="p-0 overflow-hidden"><div className="p-4 font-bold">Audit Log</div><DataTable headers={['Date', 'User', 'Action', 'Detail']} rows={audits.map(item => [new Date(item.createdAt).toLocaleString(), item.actorName, item.action, item.detail])} /></Card></div>}
   </DashboardLayout>;

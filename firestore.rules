@@ -13,6 +13,13 @@ service cloud.firestore {
       return signedIn() && exists(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid));
     }
     function hasShopAccess(shopId) { return isAdmin() || ownsShop(shopId) || isEmployee(shopId); }
+    function employeeAtBranch(shopId, branchId) {
+      return isEmployee(shopId) && (
+        (('branchId' in get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data)
+          && get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data.branchId == branchId)
+        || (!('branchId' in get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data) && branchId == 'main')
+      );
+    }
     function canDiscount(shopId) {
       return isAdmin() || ownsShop(shopId) || (isEmployee(shopId)
         && get(/databases/$(database)/documents/shops/$(shopId)/employees/$(request.auth.uid)).data.permissions.discount == true);
@@ -90,6 +97,11 @@ service cloud.firestore {
         allow create, update, delete: if isAdmin() || ownsShop(shopId);
       }
 
+      match /branches/{branchId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+      }
+
       match /suppliers/{supplierId} {
         allow read: if hasShopAccess(shopId);
         allow create, update, delete: if isAdmin() || ownsShop(shopId);
@@ -101,8 +113,12 @@ service cloud.firestore {
       }
 
       match /expenses/{expenseId} {
-        allow read: if isAdmin() || ownsShop(shopId);
-        allow create, update, delete: if isAdmin() || ownsShop(shopId);
+        allow read: if isAdmin() || ownsShop(shopId) || employeeAtBranch(shopId, resource.data.branchId);
+        allow create: if (isAdmin() || ownsShop(shopId)) || (employeeAtBranch(shopId, request.resource.data.branchId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.actorId == request.auth.uid
+          && validMoney(request.resource.data.amount));
+        allow update, delete: if isAdmin() || ownsShop(shopId);
       }
 
       match /stockMovements/{movementId} {
