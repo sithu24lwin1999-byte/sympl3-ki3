@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { addDoc, collection, collectionGroup, deleteDoc, doc, DocumentData, DocumentReference, getDocs, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import type { Order, Product, StockMovement } from '@/types';
+import type { Order, OrderStatus, Product, StockMovement } from '@/types';
 import { stockStatus } from './pos';
 
 export function useLiveCollection<T extends { id: string }>(path: string | null, sortField?: string) {
@@ -144,10 +144,14 @@ async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 
     const orderSnapshot = await transaction.get(orderRef);
     if (!orderSnapshot.exists()) throw new Error('Order not found.');
     const current = { id: orderSnapshot.id, ...orderSnapshot.data() } as Order;
-    if (current.status !== 'COMPLETED') throw new Error(`This order is already ${current.status.toLowerCase()}.`);
-    for (const item of current.items) {
-      const productRef = doc(db, `shops/${shopId}/products/${item.productId}`);
-      const snapshot = await transaction.get(productRef);
+    if (current.status === 'CANCELLED' || current.status === 'REFUNDED') throw new Error(`This order is already ${current.status.toLowerCase()}.`);
+    if (status === 'REFUNDED' && current.status !== 'COMPLETED') throw new Error('Only a completed order can be refunded.');
+    const restockItems = current.status === 'COMPLETED' ? current.items : [];
+    const productRefs = restockItems.map(item => doc(db, `shops/${shopId}/products/${item.productId}`));
+    const snapshots = await Promise.all(productRefs.map(reference => transaction.get(reference)));
+    for (const [index, item] of restockItems.entries()) {
+      const productRef = productRefs[index];
+      const snapshot = snapshots[index];
       if (snapshot.exists()) {
         const product = snapshot.data() as Product;
         if (product.itemType === 'SERVICE' || product.trackStock === false) continue;
@@ -169,6 +173,27 @@ async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 
 
 export const refundOrder = (shopId: string, order: Order, reason = '') => reverseOrder(shopId, order, 'REFUNDED', reason);
 export const cancelOrder = (shopId: string, order: Order, reason = '') => reverseOrder(shopId, order, 'CANCELLED', reason);
+
+const nextStatuses: Partial<Record<OrderStatus, OrderStatus[]>> = {
+  DRAFT: ['PENDING'], HELD: ['PENDING'], PENDING: ['CONFIRMED'], CONFIRMED: ['PREPARING'], PREPARING: ['READY'], READY: ['COMPLETED'],
+};
+
+export async function advanceOrderStatus(shopId: string, orderId: string, nextStatus: OrderStatus) {
+  const reference = doc(db, `shops/${shopId}/orders/${orderId}`);
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists()) throw new Error('Order not found.');
+    const current = snapshot.data() as Order;
+    if (!nextStatuses[current.status]?.includes(nextStatus)) throw new Error(`Order cannot move from ${current.status} to ${nextStatus}.`);
+    const now = new Date().toISOString();
+    const timestampField = nextStatus === 'CONFIRMED' ? { confirmedAt: now }
+      : nextStatus === 'PREPARING' ? { preparingAt: now }
+      : nextStatus === 'READY' ? { readyAt: now }
+      : nextStatus === 'COMPLETED' ? { completedAt: now }
+      : {};
+    transaction.update(reference, { status: nextStatus, statusUpdatedAt: now, ...timestampField });
+  });
+}
 
 export async function receivePurchase(shopId: string, input: {
   supplierId?: string; supplierName: string; productId: string; productName: string;
