@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, ShoppingBag, CreditCard, Banknote, Trash2, Plus, Minus, ScanBarcode, ArrowLeft, Printer, CheckCircle2, X, ReceiptText } from 'lucide-react';
-import { Button, Input, Card, Badge } from '@/components/ui';
+import { Button, Input, Card, Badge, DataState } from '@/components/ui';
 import { formatCurrency, cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/auth';
-import { completeSale, createRecord, setRecord, updateRecord, useLiveCollection, useLiveDocument } from '@/lib/firestore';
+import { completeSale, createRecord, setRecord, updateRecord, useLiveCollection, useLiveCollectionWhere, useLiveDocument } from '@/lib/firestore';
 import type { Branch, Employee, Order, PaymentAccount, PaymentKind, Product, Shift, Shop, ShopSettings } from '@/types';
 import { calculateTotals } from '@/lib/pos';
 import { increment } from 'firebase/firestore';
@@ -15,9 +15,15 @@ export default function POSScreen() {
   const navigate = useNavigate();
   const shopId = user?.shopId || '';
   const shop = useLiveDocument<Shop>(shopId ? `shops/${shopId}` : null);
-  const { data: products, error: productsError } = useLiveCollection<Product>(shopId ? `shops/${shopId}/products` : null);
-  const { data: shifts } = useLiveCollection<Shift>(shopId ? `shops/${shopId}/shifts` : null, 'openedAt');
-  const { data: orders } = useLiveCollection<Order>(shopId ? `shops/${shopId}/orders` : null, 'createdAt');
+  const { data: products, loading: productsLoading, error: productsError } = useLiveCollection<Product>(shopId ? `shops/${shopId}/products` : null);
+  const employeeIsScoped = user?.role === 'EMPLOYEE';
+  const employeeOrdersAreScoped = employeeIsScoped && user.permissions?.view !== true;
+  const { data: sharedShifts } = useLiveCollection<Shift>(!employeeIsScoped && shopId ? `shops/${shopId}/shifts` : null, 'openedAt');
+  const { data: employeeShifts } = useLiveCollectionWhere<Shift>(employeeIsScoped && shopId ? `shops/${shopId}/shifts` : null, 'employeeId', user?.id || null);
+  const shifts = employeeIsScoped ? employeeShifts : sharedShifts;
+  const { data: sharedOrders } = useLiveCollection<Order>(!employeeOrdersAreScoped && shopId ? `shops/${shopId}/orders` : null, 'createdAt');
+  const { data: employeeOrders } = useLiveCollectionWhere<Order>(employeeOrdersAreScoped && shopId ? `shops/${shopId}/orders` : null, 'employeeId', user?.id || null);
+  const orders = employeeOrdersAreScoped ? employeeOrders : sharedOrders;
   const { data: paymentAccounts } = useLiveCollection<PaymentAccount>(shopId ? `shops/${shopId}/paymentAccounts` : null, 'createdAt');
   const settings = useLiveDocument<ShopSettings>(shopId ? `shops/${shopId}/settings/general` : null);
   const employee = useLiveDocument<Employee>(user?.role === 'EMPLOYEE' && shopId ? `shops/${shopId}/employees/${user.id}` : null);
@@ -43,8 +49,9 @@ export default function POSScreen() {
   const [busy, setBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const categories = useMemo(() => ['All', ...Array.from(new Set(products.map(product => product.category)))], [products]);
-  const filteredProducts = products.filter(p =>
+  const sellableProducts = products.filter(product => product.active !== false && product.availableInStore !== false);
+  const categories = useMemo(() => ['All', ...Array.from(new Set(sellableProducts.map(product => product.category)))], [sellableProducts]);
+  const filteredProducts = sellableProducts.filter(p =>
     (activeCategory === 'All' || p.category === activeCategory) &&
     `${p.name} ${p.sku} ${p.barcode || ''}`.toLowerCase().includes(search.toLowerCase())
   );
@@ -70,7 +77,8 @@ export default function POSScreen() {
     }).filter(item => item.quantity > 0));
   };
 
-  const total = cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+  const salePrice = (product: Product) => product.inStorePrice ?? product.price;
+  const total = cart.reduce((sum, item) => sum + (salePrice(item.product) * item.quantity), 0);
   const calculated = calculateTotals(total, discountPercent, settings?.taxRate ?? 5);
   const { discount, tax } = calculated;
   const serviceCharge = Math.round((total - discount) * ((settings?.serviceCharge ?? 0) / 100));
@@ -82,7 +90,7 @@ export default function POSScreen() {
     setBusy(true); setCheckoutError('');
     const order: Omit<Order, 'id'> = {
       shopId, branchId, branchName, customer: customer || 'Walk-in', customerPhone,
-      items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: item.product.price })),
+      items: cart.map(item => ({ productId: item.product.id, name: item.product.name, quantity: item.quantity, price: salePrice(item.product) })),
       subtotal: total,
       tax,
       serviceCharge,
@@ -94,7 +102,7 @@ export default function POSScreen() {
       paymentAccountLabel: selectedPayment?.label || '',
       paymentAccountNumber: selectedPayment?.accountNumber || '',
       paymentReference: paymentReference.trim(),
-      status: 'COMPLETED', type: navigator.onLine ? 'ONLINE' : 'OFFLINE', employeeId: user?.id, shiftId: activeShift.id,
+      status: 'COMPLETED', type: 'OFFLINE', employeeId: user?.id, shiftId: activeShift.id,
       createdAt: new Date().toISOString(),
     };
     try {
@@ -164,7 +172,7 @@ export default function POSScreen() {
         </div>
         <div className="flex items-center space-x-4">
           {user?.role === 'OWNER' && <select aria-label="Active branch" disabled={Boolean(activeShift)} value={branchId} onChange={event => { setOwnerBranchId(event.target.value); localStorage.setItem('ki3-owner-branch', event.target.value); }} className="h-10 max-w-36 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold">{branches.filter(branch => branch.active !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>}
-          {user?.role === 'EMPLOYEE' && <Button variant="outline" onClick={() => navigate('/expenses')} className="h-10 px-3"><ReceiptText className="w-4 h-4 md:mr-2" /><span className="hidden md:inline">Expense</span></Button>}
+          {user?.role === 'EMPLOYEE' && user.permissions?.recordExpenses === true && <Button variant="outline" onClick={() => navigate('/expenses')} className="h-10 px-3"><ReceiptText className="w-4 h-4 md:mr-2" /><span className="hidden md:inline">Expense</span></Button>}
           <div className="text-right mr-4 hidden md:block">
             <p className="text-sm font-bold">Cashier: {user?.name}</p>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
@@ -216,6 +224,7 @@ export default function POSScreen() {
 
           <div className="flex-1 p-6 overflow-y-auto">
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+              <div className="col-span-full"><DataState loading={productsLoading} error={productsError} empty={!productsLoading && !productsError && filteredProducts.length === 0} emptyMessage={search || activeCategory !== 'All' ? 'No products match your search.' : 'No products or services are available.'} /></div>
               {filteredProducts.map(product => (
                 <motion.div
                   key={product.id}
@@ -330,7 +339,6 @@ export default function POSScreen() {
               <Banknote className="w-6 h-6 mr-2" /> {busy ? 'Processing…' : `Pay ${formatCurrency(grandTotal)} · ${paymentKind === 'CASH' ? 'Cash' : selectedPayment?.label || paymentKind}`}
             </Button>
             {checkoutError && <p className="mt-2 text-xs font-medium text-red-600">{checkoutError}</p>}
-            {productsError && <p className="mt-2 text-xs font-medium text-red-600">{productsError}</p>}
           </div>
         </div>
       </div>

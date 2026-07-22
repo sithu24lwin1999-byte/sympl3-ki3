@@ -1,5 +1,21 @@
 @import "tailwindcss";
 
+.control {
+  height: 2.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  background: #fff;
+  padding: 0 0.875rem;
+  color: #334155;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.control:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 15%);
+}
+
 @media print {
   body * { visibility: hidden !important; }
   .receipt, .receipt * { visibility: visible !important; }

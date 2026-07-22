@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import DashboardLayout from '@/layouts/DashboardLayout';
-import { Card, Button, Badge } from '@/components/ui';
+import { Card, Button, Badge, DataState } from '@/components/ui';
 import { Search, CheckCircle2, XCircle, RotateCcw, List } from 'lucide-react';
 import { formatCurrency, cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,7 +20,7 @@ export default function OwnerOrders() {
   const filteredOrders = orders.filter(o => (filter === 'ALL' || o.status === filter) && o.id.toLowerCase().includes(search.toLowerCase()));
 
   const reverse = async (order: Order, action: 'CANCELLED' | 'REFUNDED') => {
-    if (!user?.shopId || user.role !== 'OWNER') return;
+    if (!user?.shopId || (user.role !== 'OWNER' && user.permissions?.refund !== true)) return;
     const reason = window.prompt(`${action === 'REFUNDED' ? 'Refund' : 'Cancellation'} reason`, '')?.trim();
     if (reason === undefined) return;
     if (!window.confirm(`${action === 'REFUNDED' ? 'Refund' : 'Cancel'} order ${order.id} and restore its stock?`)) return;
@@ -68,6 +68,7 @@ export default function OwnerOrders() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <DataState loading={loading} error={error} empty={!loading && !error && filteredOrders.length === 0} emptyMessage={search || filter !== 'ALL' ? 'No orders match the current filters.' : 'No orders have been placed yet.'} />
           <AnimatePresence>
             {!loading && filteredOrders.map((order) => (
               <motion.div
@@ -107,7 +108,7 @@ export default function OwnerOrders() {
                 <div className="flex justify-between items-center">
                   <p className="font-black text-[#2563EB] text-lg">{formatCurrency(order.total)}</p>
                   
-                  {order.status === 'COMPLETED' && user?.role === 'OWNER' && (
+                  {order.status === 'COMPLETED' && (user?.role === 'OWNER' || user?.permissions?.refund === true) && (
                     <div className="flex gap-2"><Button disabled={busyOrder === order.id} variant="outline" onClick={() => reverse(order, 'CANCELLED')} className="h-8 px-3 text-xs text-red-600 rounded-full">Cancel</Button><Button disabled={busyOrder === order.id} variant="outline" onClick={() => reverse(order, 'REFUNDED')} className="h-8 px-3 text-xs text-purple-600 rounded-full">Refund</Button></div>
                   )}
                 </div>
@@ -116,7 +117,6 @@ export default function OwnerOrders() {
           </AnimatePresence>
         </div>
       </Card>
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
       {actionError && <p className="mt-4 text-sm font-medium text-red-600">{actionError}</p>}
     </DashboardLayout>
   );

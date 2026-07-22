@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt, ClipboardList, Building2 } from 'lucide-react';
+import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt, ClipboardList, Building2, ShoppingCart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { useLiveCollection, useLiveDocument } from '@/lib/firestore';
 import type { Product, Shop } from '@/types';
+import { daysRemaining, subscriptionState } from '@/lib/subscriptions';
 
 interface SidebarItem {
   icon: React.ElementType;
@@ -33,20 +34,29 @@ const ownerNav: SidebarItem[] = [
 export default function DashboardLayout({ children, role }: { children: React.ReactNode, role: 'ADMIN' | 'OWNER' }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const navItems = role === 'ADMIN' ? adminNav : ownerNav;
   const { user, logout } = useAuth();
+  const effectiveRole = user?.role === 'EMPLOYEE' ? 'EMPLOYEE' : role;
+  const employeeNav: SidebarItem[] = [
+    ...(user?.permissions?.create ? [{ icon: ShoppingCart, label: 'Point of Sale', path: '/pos' }] : []),
+    ...(user?.permissions?.view ? [{ icon: Receipt, label: 'My Orders', path: '/owner/orders' }] : []),
+    ...(user?.permissions?.recordExpenses ? [{ icon: ClipboardList, label: 'Record Expense', path: '/expenses' }] : []),
+  ];
+  const navItems = effectiveRole === 'ADMIN' ? adminNav : effectiveRole === 'EMPLOYEE' ? employeeNav : ownerNav;
   const shop = useLiveDocument<Shop>(user?.shopId ? `shops/${user.shopId}` : null);
   const { data: products } = useLiveCollection<Product>(user?.shopId ? `shops/${user.shopId}/products` : null);
   const lowStockCount = products.filter(product => product.itemType !== 'SERVICE' && product.trackStock !== false && product.stock <= product.minStock).length;
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => { const timer = window.setInterval(() => setClock(new Date()), 1000); return () => window.clearInterval(timer); }, []);
+  const currentSubscription = shop ? subscriptionState(shop) : null;
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
     const query = globalSearch.trim().toLowerCase();
     if (!query) return;
     const match = navItems.find(item => `${item.label} ${item.path}`.toLowerCase().includes(query));
-    navigate(match?.path || (role === 'ADMIN' ? '/admin/shops' : '/owner/inventory'), { state: { search: globalSearch } });
+    navigate(match?.path || (effectiveRole === 'ADMIN' ? '/admin/shops' : effectiveRole === 'EMPLOYEE' ? '/pos' : '/owner/inventory'), { state: { search: globalSearch } });
     setGlobalSearch('');
   };
 
@@ -59,7 +69,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
             <Store className="w-5 h-5 text-white" />
           </div>
           <span className="text-white font-bold text-xl tracking-tight">KI3 POS</span>
-          <Badge className="ml-auto text-[10px] bg-white/10 text-white border-none" variant="default">{role}</Badge>
+          <Badge className="ml-auto text-[10px] bg-white/10 text-white border-none" variant="default">{effectiveRole}</Badge>
         </div>
         
         <nav className="flex-1 space-y-2">
@@ -83,14 +93,14 @@ export default function DashboardLayout({ children, role }: { children: React.Re
           })}
         </nav>
 
-        {role === 'OWNER' && (
+        {effectiveRole === 'OWNER' && (
           <div className="mt-auto p-4 bg-slate-800/40 rounded-2xl border border-white/5 mb-4">
             <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">Subscription</p>
-            <p className="text-white text-xs font-medium mb-2">Premium Plan</p>
+            <p className="text-white text-xs font-medium mb-2">{shop?.plan || 'Loading plan'}</p>
             <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden mb-2">
               <div className="w-3/4 h-full bg-[#3B82F6]"></div>
             </div>
-            <p className="text-[10px] text-slate-400">12 days remaining</p>
+            <p className="text-[10px] text-slate-400">{shop ? `${Math.max(0, daysRemaining(shop.expiry))} days remaining · ${currentSubscription?.replace('_', ' ')}` : 'Loading subscription…'}</p>
           </div>
         )}
 
@@ -106,11 +116,12 @@ export default function DashboardLayout({ children, role }: { children: React.Re
       <main className="flex-1 flex flex-col min-w-0">
         <header className="min-h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
           <div className="hidden lg:block">
-            <h2 className="text-lg font-bold">{role === 'ADMIN' ? 'KI3 POS Administration' : shop?.name || 'My Shop'}</h2>
-            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
+            <h2 className="text-lg font-bold">{effectiveRole === 'ADMIN' ? 'KI3 POS Administration' : shop?.name || 'My Shop'}</h2>
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{clock.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {clock.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
           </div>
           
-          <div className="flex items-center gap-6 lg:ml-auto">
+          <div className="flex items-center gap-3 lg:gap-6 lg:ml-auto">
+            {effectiveRole === 'OWNER' && currentSubscription && <span className={cn('hidden sm:inline-flex rounded-full px-3 py-1 text-[10px] font-bold', currentSubscription === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : currentSubscription === 'TRIAL' || currentSubscription === 'EXPIRING_SOON' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700')}>{currentSubscription.replace('_', ' ')}</span>}
             <form onSubmit={handleSearch} className="flex items-center bg-slate-100 rounded-full px-4 py-2 gap-3 w-48 md:w-64">
               <Search className="w-4 h-4 text-slate-400" />
               <input 
@@ -131,9 +142,9 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                 {showNotifications && (
                   <div className="absolute right-0 top-12 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl z-50">
                     <p className="px-2 py-1 text-sm font-bold">Notifications</p>
-                    <button onClick={() => { navigate(role === 'ADMIN' ? '/admin/shops' : '/owner/inventory'); setShowNotifications(false); }} className="w-full rounded-xl p-3 text-left hover:bg-slate-50">
+                    <button onClick={() => { navigate(effectiveRole === 'ADMIN' ? '/admin/shops' : effectiveRole === 'EMPLOYEE' ? '/pos' : '/owner/inventory'); setShowNotifications(false); }} className="w-full rounded-xl p-3 text-left hover:bg-slate-50">
                       <p className="text-xs font-bold text-slate-800">{lowStockCount ? `${lowStockCount} low-stock item${lowStockCount === 1 ? '' : 's'}` : 'All stock levels look good'}</p>
-                      <p className="mt-1 text-xs text-slate-500">{role === 'ADMIN' ? 'Review tenant plans and shop activity.' : 'Open inventory to review stock levels.'}</p>
+                      <p className="mt-1 text-xs text-slate-500">{effectiveRole === 'ADMIN' ? 'Review tenant plans and shop activity.' : effectiveRole === 'EMPLOYEE' ? 'Return to the point of sale.' : 'Open inventory to review stock levels.'}</p>
                     </button>
                   </div>
                 )}
