@@ -7,6 +7,7 @@ import { Badge, Button, DataState, Input } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { completeSale, createRecord, deleteRecord, setRecord, updateRecord, useLiveCollection, useLiveCollectionWhere, useLiveDocument } from '@/lib/firestore';
 import { calculateTotals } from '@/lib/pos';
+import { createIdempotencyKey, parseOfflineSales } from '@/lib/checkout';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { Branch, Customer, Employee, HeldOrder, Order, OrderChannel, PaymentAccount, PaymentAllocation, PaymentKind, Product, Shift, Shop, ShopSettings } from '@/types';
 import { ThemeToggle } from '@/lib/theme';
@@ -170,20 +171,23 @@ export default function POSScreen() {
       paymentMethod: paymentKind === 'SPLIT' ? 'Split payment' : payments[0].label, paymentKind, payments,
       paymentAccountId: selectedPayment?.id || '', paymentAccountLabel: selectedPayment?.label || '', paymentAccountNumber: selectedPayment?.accountNumber || '', paymentReference: paymentReference.trim(),
       paidAmount, initialPaidAmount: paidAmount, dueAmount: Math.max(0, grandTotal - paidAmount), notes: notes.trim(), status: 'COMPLETED', type: orderType, employeeId: user?.id, employeeName: user?.name || 'Employee', shiftId: activeShift.id, createdAt, completedAt: createdAt, statusUpdatedAt: createdAt,
+      idempotencyKey: createIdempotencyKey(),
     };
     try {
       let id = `OFF-${Date.now()}`;
-      if (navigator.onLine) id = await completeSale(shopId, order);
+      let created = false;
+      if (navigator.onLine) ({ id, created } = await completeSale(shopId, order));
       else {
-        const queued: Array<Omit<Order, 'id'>> = JSON.parse(localStorage.getItem('ki3-offline-orders') || '[]');
+        const queued = parseOfflineSales(localStorage.getItem('ki3-offline-orders'));
         localStorage.setItem('ki3-offline-orders', JSON.stringify([...queued, order]));
+        created = true;
       }
       if (navigator.onLine && resumedHeldId) await deleteRecord(`shops/${shopId}/heldOrders`, resumedHeldId);
-      if (customerPhone) await setRecord(`shops/${shopId}/customers`, customerPhone.replace(/\W/g, ''), {
+      if (created && customerPhone) await setRecord(`shops/${shopId}/customers`, customerPhone.replace(/\W/g, ''), {
         name: customer, phone: customerPhone, totalSpent: increment(grandTotal), visits: increment(1),
         loyaltyPoints: increment(Math.floor((grandTotal / 1000) * (settings?.loyaltyPointsPer1000 ?? 0))), outstandingCredit: increment(order.dueAmount || 0), updatedAt: new Date().toISOString(),
       }).catch(() => undefined);
-      if (navigator.onLine && user) await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SALE_COMPLETED', detail: `${branchName} · ${id} · ${order.paymentMethod} · ${grandTotal} MMK`, createdAt: new Date().toISOString() });
+      if (navigator.onLine && created && user) await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user.id, actorName: user.name, action: 'SALE_COMPLETED', detail: `${branchName} · ${id} · ${order.paymentMethod} · ${grandTotal} MMK`, createdAt: new Date().toISOString() });
       setLastOrder({ id, ...order }); setShowReceipt(true); resetOrder(); toast('Sale completed successfully.');
     } catch (issue) { setCheckoutError(issue instanceof Error ? issue.message : 'Checkout failed.'); }
     finally { setBusy(false); }
@@ -191,7 +195,7 @@ export default function POSScreen() {
 
   useEffect(() => {
     const sync = async () => {
-      const queued: Array<Omit<Order, 'id'>> = JSON.parse(localStorage.getItem('ki3-offline-orders') || '[]');
+      const queued = parseOfflineSales(localStorage.getItem('ki3-offline-orders'));
       if (!queued.length || !shopId) return;
       const remaining = [...queued];
       while (remaining.length) { try { await completeSale(shopId, remaining[0]); remaining.shift(); } catch { break; } }

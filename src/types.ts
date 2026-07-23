@@ -190,6 +190,15 @@ export interface PaymentAllocation {
 
 export interface Order {
   id: string;
+  schemaVersion?: number;
+  idempotencyKey?: string;
+  paymentTransactionId?: string;
+  accountingTransactionId?: string;
+  refundPaymentTransactionId?: string;
+  refundAccountingTransactionId?: string;
+  lastDueCollectionId?: string;
+  lastDuePaymentTransactionId?: string;
+  lastDueAccountingTransactionId?: string;
   orderNumber?: string;
   shopId: string;
   shopName?: string;
@@ -355,6 +364,46 @@ export interface DueCollection {
   reference?: string;
   actorId: string;
   actorName: string;
+  paymentTransactionId?: string;
+  accountingTransactionId?: string;
+  createdAt: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  shopId: string;
+  orderId: string;
+  sourceType: 'SALE' | 'REFUND' | 'DUE_COLLECTION';
+  sourceId: string;
+  direction: 'IN' | 'OUT';
+  status: 'COMPLETED';
+  amount: number;
+  dueAmount: number;
+  paymentMethod: string;
+  paymentKind?: PaymentKind;
+  payments: PaymentAllocation[];
+  actorId: string;
+  actorName: string;
+  idempotencyKey: string;
+  createdAt: string;
+}
+
+export interface AccountingTransaction {
+  id: string;
+  shopId: string;
+  orderId?: string;
+  sourceType: 'SALE' | 'REFUND' | 'DUE_COLLECTION' | 'PURCHASE' | 'PURCHASE_RETURN';
+  sourceId: string;
+  direction: 'DEBIT' | 'CREDIT';
+  account: 'SALES' | 'CASH' | 'ACCOUNTS_RECEIVABLE' | 'PURCHASES' | 'PURCHASE_RETURNS' | 'SALES_RETURNS';
+  amount: number;
+  paidAmount?: number;
+  receivableAmount?: number;
+  taxAmount?: number;
+  costAmount?: number;
+  actorId: string;
+  actorName: string;
+  idempotencyKey: string;
   createdAt: string;
 }
 

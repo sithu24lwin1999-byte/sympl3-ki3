@@ -1,4 +1,7 @@
--- KI3 POS Relational Database Schema (PostgreSQL)
+-- LEGACY REFERENCE ONLY — NOT USED BY THE RUNNING KI3 POS APPLICATION.
+-- The production application uses Firebase Authentication and Cloud Firestore.
+-- See docs/FIRESTORE_SCHEMA.md for the authoritative active data model.
+-- Do not run this file as a production migration.
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

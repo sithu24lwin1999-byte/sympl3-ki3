@@ -6,6 +6,7 @@ import { deleteApp, initializeApp } from 'firebase/app';
 import firebaseConfig from '../../firebase-applet-config.json';
 import type { AppUser, EmployeePermissions, Role, Shop } from '@/types';
 import { normalizePermissions } from './permissions';
+import { authErrorMessage, sanitizeAuditDetail } from './security';
 
 export interface AccessIssue { code: 'UNAUTHORIZED' | 'SUSPENDED' | 'EXPIRED'; message: string }
 const INACTIVE_SUBSCRIPTION_MESSAGE = 'Your Ki3 POS subscription is currently inactive. Please contact the system administrator.';
@@ -44,8 +45,8 @@ async function recordManagedAction(path: string, action: string, detail: string,
   const actor = auth.currentUser;
   if (!actor) return;
   await addDoc(collection(db, path), {
-    actorId: actor.uid, actorName: actor.displayName || actor.email || 'Administrator', actorRole: shopId ? 'OWNER' : 'ADMIN',
-    action, detail, ...(shopId ? { shopId } : {}), createdAt: serverTimestamp(),
+    actorId: actor.uid, actorName: actor.displayName || (shopId ? 'Shop Owner' : 'Administrator'), actorRole: shopId ? 'OWNER' : 'ADMIN',
+    action, detail: sanitizeAuditDetail(detail), ...(shopId ? { shopId } : {}), createdAt: serverTimestamp(),
   });
 }
 
@@ -141,12 +142,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (issue) {
         if (issue instanceof TenantAccessError) setAccessIssue(issue.issue);
         else await signOut(auth);
-        throw issue;
+        if (issue instanceof TenantAccessError) throw issue;
+        throw new Error(authErrorMessage(issue));
       }
     },
     resetPassword: async (email) => {
       if (!email.trim()) throw new Error('Enter your email address first.');
-      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+      try {
+        await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+      } catch (issue) {
+        throw new Error(authErrorMessage(issue));
+      }
     },
     changeAdminCredentials: async ({ currentPassword, newEmail, newPassword }) => {
       if (!firebaseUser || user?.role !== 'ADMIN' || !firebaseUser.email) throw new Error('Admin account is not available.');
@@ -193,7 +199,7 @@ export async function createManagedUser(input: { email: string; password: string
     return credential.user.uid;
   } catch (issue) {
     if (credential) await deleteUser(credential.user).catch(() => undefined);
-    throw issue;
+    throw new Error(authErrorMessage(issue));
   } finally { await deleteApp(secondary); }
 }
 

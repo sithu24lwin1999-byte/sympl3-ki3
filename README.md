@@ -9,6 +9,7 @@ KI3 POS is a multi-tenant shop-management and point-of-sale web app. It supports
 - Realtime products/services, employees, orders, customers, shifts and settings
 - Owner-configured KPay, Wave Money and bank accounts shown directly at employee checkout
 - Payment transaction history grouped by cash, KPay, Wave and bank transfer
+- Idempotent, transactional checkout: order, payment ledger, accounting ledger and stock movements commit together
 - Transactional stock deduction, purchase receiving, stock movements and refund restoration
 - Suppliers, purchases, expenses, loyalty points, audit logs and cash-shift reconciliation
 - Barcode checkout, employee permissions, configurable taxes/service charges and invoice printing
@@ -37,6 +38,7 @@ Quality checks:
 ```bash
 npm run lint
 npm test
+npm run test:rules
 npm run build
 ```
 
@@ -68,7 +70,29 @@ Authorization rules have an emulator test suite:
 npm run test:rules
 ```
 
-The Firestore emulator requires a local Java runtime.
+The Firestore emulator requires Java 21. On Apple Silicon with Homebrew:
+
+```bash
+brew install openjdk@21
+PATH="/opt/homebrew/opt/openjdk@21/bin:$PATH" npm run test:rules
+```
+
+## Architecture and data safety
+
+- `src/pages` contains role-scoped screens; `src/lib` contains authentication, authorization, Firestore transactions and reporting services.
+- Firebase Authentication securely hashes passwords and issues ID-token sessions. The application never stores password hashes in Firestore.
+- Firestore Security Rules are the server-side authorization boundary. UI route guards are an additional convenience, not the security mechanism.
+- Every new checkout uses an idempotency key and deterministic order ID. Retrying the same offline sale returns the existing order without deducting stock again.
+- Checkout writes the order, immutable payment transaction, immutable accounting transaction and stock movements in one Firestore transaction.
+- Tenant writes are rejected when a shop is stopped, archived, suspended or expired.
+- Firebase Auth supplies managed rate limiting and abuse protection. No custom credential endpoint is hosted by this Spark-plan build.
+- `firebase-applet-config.json` is Firebase browser configuration, not a server credential. Never commit service accounts, private keys, provider secrets or passwords.
+
+The active collections and compatibility policy are documented in [`docs/FIRESTORE_SCHEMA.md`](docs/FIRESTORE_SCHEMA.md). The checkout schema change is documented in [`docs/migrations/2026-07-23-atomic-sale-ledgers.md`](docs/migrations/2026-07-23-atomic-sale-ledgers.md).
+
+## Administrator setup
+
+The Main System Admin must be created in Firebase Authentication with Email/Password and receive the `admin: true` custom claim from a trusted administrator environment. Never put admin credentials or a service-account key in this repository. After changing a custom claim, sign out and sign in again so Firebase refreshes the ID token.
 
 ## Deployment
 

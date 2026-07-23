@@ -64,6 +64,78 @@ service cloud.firestore {
     function validMoney(value) { return value is number && value >= 0 && value < 100000000000; }
     function linkedOrderPath(shopId, orderId) { return /databases/$(database)/documents/shops/$(shopId)/orders/$(orderId); }
     function linkedMovementPath(shopId, movementId) { return /databases/$(database)/documents/shops/$(shopId)/stockMovements/$(movementId); }
+    function linkedPaymentPath(shopId, transactionId) { return /databases/$(database)/documents/shops/$(shopId)/paymentTransactions/$(transactionId); }
+    function linkedAccountingPath(shopId, transactionId) { return /databases/$(database)/documents/shops/$(shopId)/accountingTransactions/$(transactionId); }
+    function linkedDuePath(shopId, collectionId) { return /databases/$(database)/documents/shops/$(shopId)/dueCollections/$(collectionId); }
+    function validSaleOrder(shopId, orderId) {
+      return request.resource.data.status == 'COMPLETED'
+        && request.resource.data.schemaVersion == 2
+        && request.resource.data.idempotencyKey is string
+        && request.resource.data.employeeId is string
+        && request.resource.data.paymentMethod is string
+        && request.resource.data.createdAt is string
+        && request.resource.data.paymentTransactionId is string
+        && request.resource.data.accountingTransactionId is string
+        && validMoney(request.resource.data.subtotal)
+        && validMoney(request.resource.data.discount)
+        && validMoney(request.resource.data.tax)
+        && validMoney(request.resource.data.paidAmount)
+        && validMoney(request.resource.data.dueAmount)
+        && request.resource.data.paidAmount + request.resource.data.dueAmount == request.resource.data.total
+        && !exists(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId))
+        && existsAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId))
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.shopId == shopId
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.orderId == orderId
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.sourceType == 'SALE'
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.actorId == request.resource.data.employeeId
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.amount == request.resource.data.paidAmount
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.dueAmount == request.resource.data.dueAmount
+        && !exists(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId))
+        && existsAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId))
+        && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.shopId == shopId
+        && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.orderId == orderId
+        && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.sourceType == 'SALE'
+        && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.actorId == request.resource.data.employeeId
+        && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.amount == request.resource.data.total;
+    }
+    function validRefundUpdate(shopId, orderId) {
+      return resource.data.status == 'COMPLETED'
+        && request.resource.data.status == 'REFUNDED'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'refundedAt', 'refundReason', 'refundPaymentTransactionId', 'refundAccountingTransactionId'
+        ])
+        && request.resource.data.refundPaymentTransactionId is string
+        && request.resource.data.refundAccountingTransactionId is string
+        && existsAfter(linkedPaymentPath(shopId, request.resource.data.refundPaymentTransactionId))
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.refundPaymentTransactionId)).data.orderId == orderId
+        && getAfter(linkedPaymentPath(shopId, request.resource.data.refundPaymentTransactionId)).data.sourceType == 'REFUND'
+        && existsAfter(linkedAccountingPath(shopId, request.resource.data.refundAccountingTransactionId))
+        && getAfter(linkedAccountingPath(shopId, request.resource.data.refundAccountingTransactionId)).data.orderId == orderId
+        && getAfter(linkedAccountingPath(shopId, request.resource.data.refundAccountingTransactionId)).data.sourceType == 'REFUND';
+    }
+    function validCancelUpdate() {
+      return !(resource.data.status in ['COMPLETED', 'CANCELLED', 'REFUNDED'])
+        && request.resource.data.status == 'CANCELLED'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelReason']);
+    }
+    function validDueUpdate(shopId, orderId) {
+      return request.resource.data.status == resource.data.status
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'paidAmount', 'dueAmount', 'statusUpdatedAt', 'lastDueCollectionId',
+          'lastDuePaymentTransactionId', 'lastDueAccountingTransactionId'
+        ])
+        && validMoney(request.resource.data.paidAmount)
+        && validMoney(request.resource.data.dueAmount)
+        && request.resource.data.paidAmount + request.resource.data.dueAmount == resource.data.total
+        && request.resource.data.paidAmount > resource.data.paidAmount
+        && request.resource.data.dueAmount < resource.data.dueAmount
+        && request.resource.data.lastDueCollectionId is string
+        && existsAfter(linkedDuePath(shopId, request.resource.data.lastDueCollectionId))
+        && getAfter(linkedDuePath(shopId, request.resource.data.lastDueCollectionId)).data.orderId == orderId
+        && getAfter(linkedDuePath(shopId, request.resource.data.lastDueCollectionId)).data.amount == request.resource.data.paidAmount - resource.data.paidAmount
+        && request.resource.data.lastDuePaymentTransactionId == getAfter(linkedDuePath(shopId, request.resource.data.lastDueCollectionId)).data.paymentTransactionId
+        && request.resource.data.lastDueAccountingTransactionId == getAfter(linkedDuePath(shopId, request.resource.data.lastDueCollectionId)).data.accountingTransactionId;
+    }
     function validMovementRecord(shopId, productId) {
       return request.resource.data.shopId == shopId
         && request.resource.data.productId == productId
@@ -203,16 +275,21 @@ service cloud.firestore {
           && request.resource.data.shopId == shopId
           && validMoney(request.resource.data.total)
           && request.resource.data.items is list
+          && request.resource.data.items.size() > 0
+          && request.resource.data.items.size() <= 200
+          && validSaleOrder(shopId, orderId)
           && (ownsShop(shopId) || (request.resource.data.employeeId == request.auth.uid && employeePermission(shopId, 'create')))
           && (request.resource.data.discount == 0 || canDiscount(shopId));
-        allow update: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
+        allow update: if isAdmin() || (
+          ownsShop(shopId) && subscriptionActive(shopId)
+          && request.resource.data.shopId == shopId
+          && (validOrderProgression() || validRefundUpdate(shopId, orderId) || validCancelUpdate() || validDueUpdate(shopId, orderId))
+        ) || (
           activeTenantMember(shopId) && employeeAtBranch(shopId, resource.data.branchId) && (
             (employeePermission(shopId, 'approve') && validOrderProgression())
             || (
               employeePermission(shopId, 'refund')
-              && resource.data.status == 'COMPLETED'
-              && request.resource.data.status in ['CANCELLED', 'REFUNDED']
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelReason', 'refundedAt', 'refundReason'])
+              && (validRefundUpdate(shopId, orderId) || validCancelUpdate())
             )
           )
         );
@@ -324,7 +401,75 @@ service cloud.firestore {
           && request.resource.data.paymentMethod is string
           && validMoney(request.resource.data.amount)
           && request.resource.data.amount > 0
+          && request.resource.data.paymentTransactionId is string
+          && request.resource.data.accountingTransactionId is string
+          && existsAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId))
+          && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.sourceId == collectionId
+          && getAfter(linkedPaymentPath(shopId, request.resource.data.paymentTransactionId)).data.sourceType == 'DUE_COLLECTION'
+          && existsAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId))
+          && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.sourceId == collectionId
+          && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.sourceType == 'DUE_COLLECTION'
           && request.resource.data.createdAt is string;
+        allow update, delete: if false;
+      }
+
+      match /paymentTransactions/{transactionId} {
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
+          activeTenantMember(shopId) && (
+            employeePermission(shopId, 'accessReports')
+            || resource.data.actorId == request.auth.uid
+          )
+        );
+        allow create: if activeTenantMember(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.sourceType in ['SALE', 'REFUND', 'DUE_COLLECTION']
+          && request.resource.data.direction in ['IN', 'OUT']
+          && request.resource.data.status == 'COMPLETED'
+          && request.resource.data.paymentMethod is string
+          && request.resource.data.createdAt is string
+          && validMoney(request.resource.data.amount)
+          && validMoney(request.resource.data.dueAmount)
+          && request.resource.data.payments is list
+          && request.resource.data.idempotencyKey is string
+          && (
+            (request.resource.data.sourceType == 'SALE'
+              && existsAfter(linkedOrderPath(shopId, request.resource.data.orderId))
+              && getAfter(linkedOrderPath(shopId, request.resource.data.orderId)).data.paymentTransactionId == transactionId)
+            || (request.resource.data.sourceType == 'REFUND'
+              && existsAfter(linkedOrderPath(shopId, request.resource.data.orderId))
+              && getAfter(linkedOrderPath(shopId, request.resource.data.orderId)).data.refundPaymentTransactionId == transactionId)
+            || (request.resource.data.sourceType == 'DUE_COLLECTION'
+              && existsAfter(linkedDuePath(shopId, request.resource.data.sourceId))
+              && getAfter(linkedDuePath(shopId, request.resource.data.sourceId)).data.paymentTransactionId == transactionId)
+          );
+        allow update, delete: if false;
+      }
+
+      match /accountingTransactions/{transactionId} {
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (
+          activeTenantMember(shopId) && employeePermission(shopId, 'accessReports')
+        );
+        allow create: if activeTenantMember(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.sourceType in ['SALE', 'REFUND', 'DUE_COLLECTION']
+          && request.resource.data.direction in ['DEBIT', 'CREDIT']
+          && request.resource.data.account in ['SALES', 'CASH', 'ACCOUNTS_RECEIVABLE', 'SALES_RETURNS']
+          && request.resource.data.createdAt is string
+          && validMoney(request.resource.data.amount)
+          && request.resource.data.idempotencyKey is string
+          && (
+            (request.resource.data.sourceType == 'SALE'
+              && existsAfter(linkedOrderPath(shopId, request.resource.data.orderId))
+              && getAfter(linkedOrderPath(shopId, request.resource.data.orderId)).data.accountingTransactionId == transactionId)
+            || (request.resource.data.sourceType == 'REFUND'
+              && existsAfter(linkedOrderPath(shopId, request.resource.data.orderId))
+              && getAfter(linkedOrderPath(shopId, request.resource.data.orderId)).data.refundAccountingTransactionId == transactionId)
+            || (request.resource.data.sourceType == 'DUE_COLLECTION'
+              && existsAfter(linkedDuePath(shopId, request.resource.data.sourceId))
+              && getAfter(linkedDuePath(shopId, request.resource.data.sourceId)).data.accountingTransactionId == transactionId)
+          );
         allow update, delete: if false;
       }
 

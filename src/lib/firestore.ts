@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { addDoc, collection, collectionGroup, deleteDoc, doc, DocumentData, DocumentReference, getDocs, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import type { DueCollection, Order, OrderStatus, PaymentKind, Product, Purchase, PurchaseReturn, SalesReturn, StockMovement } from '@/types';
+import type { AccountingTransaction, DueCollection, Order, OrderStatus, PaymentAllocation, PaymentKind, PaymentTransaction, Product, Purchase, PurchaseReturn, SalesReturn, StockMovement } from '@/types';
 import { stockStatus } from './pos';
+import { firestoreSafeId, normalizeSaleOrder, saleLedgerRecords } from './checkout';
+import { dataErrorMessage } from './security';
 
 export function useLiveCollection<T extends { id: string }>(path: string | null, sortField?: string) {
   const [data, setData] = useState<T[]>([]);
@@ -17,7 +19,7 @@ export function useLiveCollection<T extends { id: string }>(path: string | null,
       setData(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as T)));
       setLoading(false);
       setError(null);
-    }, issue => { setError(issue.message); setLoading(false); });
+    }, issue => { setError(dataErrorMessage(issue)); setLoading(false); });
   }, [path, sortField]);
   return { data, loading, error };
 }
@@ -33,7 +35,7 @@ export function useLiveCollectionGroup<T extends { id: string }>(name: string, s
     return onSnapshot(source, snapshot => {
       setData(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as T)));
       setLoading(false); setError(null);
-    }, issue => { setError(issue.message); setLoading(false); });
+    }, issue => { setError(dataErrorMessage(issue)); setLoading(false); });
   }, [name, sortField]);
   return { data, loading, error };
 }
@@ -49,7 +51,7 @@ export function useLiveCollectionWhere<T extends { id: string }>(path: string | 
       setData(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as T)));
       setError(null);
       setLoading(false);
-    }, issue => { setError(issue.message); setLoading(false); });
+    }, issue => { setError(dataErrorMessage(issue)); setLoading(false); });
   }, [field, path, value]);
   return { data, loading, error };
 }
@@ -71,7 +73,7 @@ export function useLiveDocumentState<T>(path: string | null) {
       setLoading(false);
     }, issue => {
       setData(null);
-      setError(issue.message);
+      setError(dataErrorMessage(issue));
       setLoading(false);
     });
   }, [path]);
@@ -85,7 +87,7 @@ export const deleteRecord = (path: string, id: string) => deleteDoc(doc(db, path
 
 const SHOP_SUBCOLLECTIONS = [
   'auditLogs', 'branches', 'coupons', 'customers', 'dueCollections', 'employees', 'expenseCategories', 'expenses', 'notifications', 'orders',
-  'heldOrders', 'paymentAccounts', 'products', 'promotions', 'purchaseReturns', 'purchases', 'salesReturns', 'settings', 'shifts',
+  'accountingTransactions', 'heldOrders', 'paymentAccounts', 'paymentTransactions', 'products', 'promotions', 'purchaseReturns', 'purchases', 'salesReturns', 'settings', 'shifts',
   'stockMovements', 'suppliers',
 ] as const;
 
@@ -109,16 +111,25 @@ export async function deleteShopCascade(shopId: string) {
 }
 
 export async function completeSale(shopId: string, order: Omit<Order, 'id'>) {
-  const orderRef = doc(collection(db, `shops/${shopId}/orders`));
-  await runTransaction(db, async transaction => {
-    const productRefs = order.items.map(item => doc(db, `shops/${shopId}/products/${item.productId}`));
+  const normalized = normalizeSaleOrder(shopId, order);
+  const orderRef = doc(db, `shops/${shopId}/orders/sale-${firestoreSafeId(normalized.idempotencyKey!)}`);
+  const ledger = saleLedgerRecords(normalized, orderRef.id);
+  const paymentRef = doc(db, `shops/${shopId}/paymentTransactions/${ledger.paymentTransactionId}`);
+  const accountingRef = doc(db, `shops/${shopId}/accountingTransactions/${ledger.accountingTransactionId}`);
+  const created = await runTransaction(db, async transaction => {
+    const existingOrder = await transaction.get(orderRef);
+    if (existingOrder.exists()) {
+      if (existingOrder.data().idempotencyKey !== normalized.idempotencyKey) throw new Error('This sale identifier is already in use.');
+      return false;
+    }
+    const productRefs = normalized.items.map(item => doc(db, `shops/${shopId}/products/${item.productId}`));
     const settingsRef = doc(db, `shops/${shopId}/settings/general`);
     const [settingsSnapshot, ...productSnapshots] = await Promise.all([
       transaction.get(settingsRef),
       ...productRefs.map(reference => transaction.get(reference)),
     ]);
     const allowNegativeStock = settingsSnapshot.exists() && settingsSnapshot.data().allowNegativeStock === true;
-    for (const [index, item] of order.items.entries()) {
+    for (const [index, item] of normalized.items.entries()) {
       const productRef = productRefs[index];
       const snapshot = productSnapshots[index];
       if (!snapshot.exists()) throw new Error(`${item.name} is no longer available.`);
@@ -126,16 +137,23 @@ export async function completeSale(shopId: string, order: Omit<Order, 'id'>) {
       if (product.itemType === 'SERVICE' || product.trackStock === false) continue;
       if (!allowNegativeStock && product.stock < item.quantity) throw new Error(`Not enough stock for ${item.name}. Available: ${product.stock}.`);
       const stock = product.stock - item.quantity;
-      const movementRef = doc(collection(db, `shops/${shopId}/stockMovements`));
+      const movementRef = doc(db, `shops/${shopId}/stockMovements/sale-${orderRef.id}-${item.productId}`);
       transaction.update(productRef, { stock, status: stockStatus(stock, product.minStock), lastOrderId: orderRef.id, lastMovementId: movementRef.id });
       transaction.set(movementRef, {
         shopId, orderId: orderRef.id, productId: item.productId, productName: item.name, type: 'SALE', quantity: -item.quantity,
-        before: product.stock, balance: stock, reason: 'Sales deduction', actorId: order.employeeId || '', sourceId: orderRef.id, note: `Order ${orderRef.id}`, createdAt: order.createdAt,
+        before: product.stock, balance: stock, reason: 'Sales deduction', actorId: normalized.employeeId || '', sourceId: orderRef.id, note: `Order ${orderRef.id}`, createdAt: normalized.createdAt,
       });
     }
-    transaction.set(orderRef, order);
+    transaction.set(paymentRef, ledger.payment);
+    transaction.set(accountingRef, ledger.accounting);
+    transaction.set(orderRef, {
+      ...normalized,
+      paymentTransactionId: paymentRef.id,
+      accountingTransactionId: accountingRef.id,
+    });
+    return true;
   });
-  return orderRef.id;
+  return { id: orderRef.id, created };
 }
 
 async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 'REFUNDED', reason: string) {
@@ -146,6 +164,7 @@ async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 
     const current = { id: orderSnapshot.id, ...orderSnapshot.data() } as Order;
     if (current.status === 'CANCELLED' || current.status === 'REFUNDED') throw new Error(`This order is already ${current.status.toLowerCase()}.`);
     if (status === 'REFUNDED' && current.status !== 'COMPLETED') throw new Error('Only a completed order can be refunded.');
+    if (status === 'CANCELLED' && current.status === 'COMPLETED') throw new Error('A completed sale must be refunded, not cancelled.');
     const restockItems = current.status === 'COMPLETED' ? current.items : [];
     const productRefs = restockItems.map(item => doc(db, `shops/${shopId}/products/${item.productId}`));
     const customerRef = current.customerPhone ? doc(db, `shops/${shopId}/customers/${current.customerPhone.replace(/\W/g, '')}`) : null;
@@ -172,17 +191,39 @@ async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 
     const now = new Date().toISOString();
     if (status === 'REFUNDED') {
       const returnRef = doc(db, `shops/${shopId}/salesReturns/${order.id}`);
+      const paymentRef = doc(db, `shops/${shopId}/paymentTransactions/refund-${order.id}`);
+      const accountingRef = doc(db, `shops/${shopId}/accountingTransactions/refund-${order.id}`);
+      const paidAmount = current.paidAmount ?? Math.max(0, current.total - (current.dueAmount || 0));
+      const refundPaymentKind = current.paymentKind || (current.payments && current.payments.length > 1 ? 'SPLIT' : current.payments?.[0]?.kind) || 'CASH';
+      const payments = current.payments?.filter(payment => payment.kind !== 'CREDIT') || [{
+        kind: (refundPaymentKind === 'SPLIT' || refundPaymentKind === 'CREDIT' ? 'CASH' : refundPaymentKind) as Exclude<PaymentKind, 'SPLIT'>,
+        label: current.paymentMethod, amount: paidAmount,
+      }];
+      const refundKey = `refund-${order.id}`;
       const record: Omit<SalesReturn, 'id'> = {
         shopId, orderId: order.id, orderNumber: current.orderNumber || current.id, customer: current.customer,
         items: current.items, total: current.total, reason, actorId: auth.currentUser?.uid || '', actorName: auth.currentUser?.displayName || 'Shop user', createdAt: now,
       };
       transaction.set(returnRef, record);
+      transaction.set(paymentRef, {
+        shopId, orderId: order.id, sourceType: 'REFUND', sourceId: returnRef.id, direction: 'OUT', status: 'COMPLETED',
+        amount: paidAmount, dueAmount: 0, paymentMethod: current.paymentMethod, paymentKind: refundPaymentKind, payments,
+        actorId: auth.currentUser?.uid || '', actorName: auth.currentUser?.displayName || 'Shop user',
+        idempotencyKey: refundKey, createdAt: now,
+      } satisfies Omit<PaymentTransaction, 'id'>);
+      transaction.set(accountingRef, {
+        shopId, orderId: order.id, sourceType: 'REFUND', sourceId: returnRef.id, direction: 'DEBIT', account: 'SALES_RETURNS',
+        amount: current.total, paidAmount, receivableAmount: current.dueAmount || 0, taxAmount: current.tax,
+        costAmount: current.items.reduce((sum, item) => sum + (item.cost || 0) * item.quantity, 0),
+        actorId: auth.currentUser?.uid || '', actorName: auth.currentUser?.displayName || 'Shop user',
+        idempotencyKey: refundKey, createdAt: now,
+      } satisfies Omit<AccountingTransaction, 'id'>);
       if (customerRef && customerSnapshot?.exists() && shopSnapshot.data()?.ownerId === auth.currentUser?.uid && (current.dueAmount || 0) > 0) {
         transaction.update(customerRef, { outstandingCredit: Math.max(0, (customerSnapshot.data().outstandingCredit || 0) - (current.dueAmount || 0)), updatedAt: now });
       }
     }
     transaction.update(orderRef, status === 'REFUNDED'
-      ? { status, refundedAt: now, refundReason: reason }
+      ? { status, refundedAt: now, refundReason: reason, refundPaymentTransactionId: `refund-${order.id}`, refundAccountingTransactionId: `refund-${order.id}` }
       : { status, cancelledAt: now, cancelReason: reason });
   });
 }
@@ -200,6 +241,8 @@ export async function collectOrderDue(shopId: string, orderId: string, input: {
 }) {
   const orderRef = doc(db, `shops/${shopId}/orders/${orderId}`);
   const collectionRef = doc(collection(db, `shops/${shopId}/dueCollections`));
+  const paymentRef = doc(db, `shops/${shopId}/paymentTransactions/due-${collectionRef.id}`);
+  const accountingRef = doc(db, `shops/${shopId}/accountingTransactions/due-${collectionRef.id}`);
   const createdAt = new Date().toISOString();
   await runTransaction(db, async transaction => {
     const snapshot = await transaction.get(orderRef);
@@ -214,10 +257,25 @@ export async function collectOrderDue(shopId: string, orderId: string, input: {
     const record: Omit<DueCollection, 'id'> = {
       shopId, orderId, orderNumber: order.orderNumber || order.id, customer: order.customer,
       amount: input.amount, paymentKind: input.paymentKind, paymentMethod: input.paymentMethod,
-      reference: input.reference?.trim() || '', actorId: input.actorId, actorName: input.actorName, createdAt,
+      reference: input.reference?.trim() || '', actorId: input.actorId, actorName: input.actorName,
+      paymentTransactionId: paymentRef.id, accountingTransactionId: accountingRef.id, createdAt,
     };
-    transaction.update(orderRef, { paidAmount: paid + input.amount, dueAmount: due - input.amount, statusUpdatedAt: createdAt });
+    transaction.update(orderRef, {
+      paidAmount: paid + input.amount, dueAmount: due - input.amount, statusUpdatedAt: createdAt,
+      lastDueCollectionId: collectionRef.id, lastDuePaymentTransactionId: paymentRef.id, lastDueAccountingTransactionId: accountingRef.id,
+    });
     if (customerRef && customerSnapshot?.exists()) transaction.update(customerRef, { outstandingCredit: Math.max(0, (customerSnapshot.data().outstandingCredit || 0) - input.amount), updatedAt: createdAt });
+    const allocation: PaymentAllocation = { kind: input.paymentKind, label: input.paymentMethod, amount: input.amount, reference: input.reference?.trim() || '' };
+    transaction.set(paymentRef, {
+      shopId, orderId, sourceType: 'DUE_COLLECTION', sourceId: collectionRef.id, direction: 'IN', status: 'COMPLETED',
+      amount: input.amount, dueAmount: Math.max(0, due - input.amount), paymentMethod: input.paymentMethod, paymentKind: input.paymentKind,
+      payments: [allocation], actorId: input.actorId, actorName: input.actorName, idempotencyKey: `due-${collectionRef.id}`, createdAt,
+    } satisfies Omit<PaymentTransaction, 'id'>);
+    transaction.set(accountingRef, {
+      shopId, orderId, sourceType: 'DUE_COLLECTION', sourceId: collectionRef.id, direction: 'DEBIT', account: 'CASH',
+      amount: input.amount, paidAmount: input.amount, receivableAmount: Math.max(0, due - input.amount),
+      actorId: input.actorId, actorName: input.actorName, idempotencyKey: `due-${collectionRef.id}`, createdAt,
+    } satisfies Omit<AccountingTransaction, 'id'>);
     transaction.set(collectionRef, record);
   });
   return collectionRef.id;

@@ -46,7 +46,9 @@ class AppErrorBoundary extends React.Component<{ children: ReactNode }, { failed
   state = { failed: false };
   declare readonly props: Readonly<{ children: ReactNode }>;
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(error: Error, info: ErrorInfo) { console.error('KI3 POS rendering failed', error, info); }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    if (import.meta.env.DEV) console.error('KI3 POS rendering failed', { name: error.name, hasComponentStack: Boolean(info.componentStack) });
+  }
   render() {
     if (this.state.failed) return <div className="min-h-screen grid place-items-center bg-slate-50 p-6"><div role="alert" className="max-w-md rounded-3xl border border-red-100 bg-white p-8 text-center shadow-sm"><h1 className="text-xl font-black text-slate-900">KI3 POS could not load this page</h1><p className="mt-2 text-sm text-slate-500">Check your connection, then reload the application.</p><button onClick={() => window.location.reload()} className="mt-5 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white">Reload application</button></div></div>;
     return this.props.children;

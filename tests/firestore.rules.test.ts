@@ -33,7 +33,7 @@ describeRules('Ki3 POS Firestore authorization', () => {
           shopId: 'shop-a', branchId: 'main', status: 'Active',
           permissions: { view: false, create: false, discount: false, refund: false, editStock: false, viewOrders: false, recordExpenses: false },
         }),
-        setDoc(doc(db, 'shops/shop-a/orders/own-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'COMPLETED' }),
+        setDoc(doc(db, 'shops/shop-a/orders/own-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'COMPLETED', total: 100, paidAmount: 50, dueAmount: 50 }),
         setDoc(doc(db, 'shops/shop-a/orders/other-order'), { shopId: 'shop-a', employeeId: 'other', branchId: 'main', status: 'COMPLETED' }),
         setDoc(doc(db, 'shops/shop-a/orders/pending-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'PENDING' }),
         setDoc(doc(db, 'shops/shop-a/purchases/purchase-a'), { shopId: 'shop-a', supplierName: 'Supplier', productId: 'product-a', productName: 'A', quantity: 5, unitCost: 20, total: 100, createdAt: new Date().toISOString() }),
@@ -64,12 +64,33 @@ describeRules('Ki3 POS Firestore authorization', () => {
 
   it('enforces the create permission for employee sales', async () => {
     const db = environment.authenticatedContext('employee-a').firestore();
-    const order = { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'COMPLETED', total: 100, discount: 0, items: [] };
-    await assertFails(setDoc(doc(db, 'shops/shop-a/orders/new-order-blocked'), order));
+    const saleWrite = (suffix: string) => runTransaction(db, async transaction => {
+      const orderRef = doc(db, `shops/shop-a/orders/order-${suffix}`);
+      const paymentRef = doc(db, `shops/shop-a/paymentTransactions/payment-${suffix}`);
+      const accountingRef = doc(db, `shops/shop-a/accountingTransactions/accounting-${suffix}`);
+      const createdAt = new Date().toISOString();
+      transaction.set(orderRef, {
+        shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'COMPLETED', schemaVersion: 2,
+        idempotencyKey: `checkout-${suffix}`, paymentTransactionId: paymentRef.id, accountingTransactionId: accountingRef.id,
+        subtotal: 100, tax: 0, total: 100, paidAmount: 100, dueAmount: 0, discount: 0,
+        paymentMethod: 'Cash', items: [{ productId: 'service-a', name: 'Service', quantity: 1, price: 100 }], createdAt,
+      });
+      transaction.set(paymentRef, {
+        shopId: 'shop-a', orderId: orderRef.id, sourceType: 'SALE', sourceId: orderRef.id, direction: 'IN',
+        status: 'COMPLETED', amount: 100, dueAmount: 0, paymentMethod: 'Cash', payments: [{ kind: 'CASH', label: 'Cash', amount: 100 }],
+        actorId: 'employee-a', idempotencyKey: `checkout-${suffix}`, createdAt,
+      });
+      transaction.set(accountingRef, {
+        shopId: 'shop-a', orderId: orderRef.id, sourceType: 'SALE', sourceId: orderRef.id, direction: 'CREDIT',
+        account: 'SALES', amount: 100, actorId: 'employee-a', idempotencyKey: `checkout-${suffix}`, createdAt,
+      });
+    });
+    await assertFails(saleWrite('blocked'));
     await environment.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'shops/shop-a/employees/employee-a'), {
       'permissions.create': true,
     }));
-    await assertSucceeds(setDoc(doc(db, 'shops/shop-a/orders/new-order-allowed'), order));
+    await assertSucceeds(saleWrite('allowed'));
+    await assertFails(updateDoc(doc(db, 'shops/shop-a/paymentTransactions/payment-allowed'), { amount: 1 }));
   });
 
   it('enforces approve permission and valid order status progression', async () => {
@@ -153,7 +174,30 @@ describeRules('Ki3 POS Firestore authorization', () => {
     await assertSucceeds(getDoc(doc(employeeDb, 'shops/shop-a/dueCollections/due-a')));
     await assertFails(setDoc(doc(employeeDb, 'shops/shop-a/dueCollections/blocked'), { shopId: 'shop-a', orderId: 'own-order', amount: 10, paymentMethod: 'Cash', actorId: 'employee-a', createdAt: new Date().toISOString() }));
     const ownerDb = environment.authenticatedContext('owner-a').firestore();
-    await assertSucceeds(setDoc(doc(ownerDb, 'shops/shop-a/dueCollections/allowed'), { shopId: 'shop-a', orderId: 'own-order', amount: 10, paymentMethod: 'Cash', actorId: 'owner-a', createdAt: new Date().toISOString() }));
+    await assertSucceeds(runTransaction(ownerDb, async transaction => {
+      const orderRef = doc(ownerDb, 'shops/shop-a/orders/own-order');
+      const dueRef = doc(ownerDb, 'shops/shop-a/dueCollections/allowed');
+      const paymentRef = doc(ownerDb, 'shops/shop-a/paymentTransactions/due-allowed');
+      const accountingRef = doc(ownerDb, 'shops/shop-a/accountingTransactions/due-allowed');
+      const createdAt = new Date().toISOString();
+      transaction.update(orderRef, {
+        paidAmount: 60, dueAmount: 40, statusUpdatedAt: createdAt, lastDueCollectionId: dueRef.id,
+        lastDuePaymentTransactionId: paymentRef.id, lastDueAccountingTransactionId: accountingRef.id,
+      });
+      transaction.set(dueRef, {
+        shopId: 'shop-a', orderId: orderRef.id, amount: 10, paymentMethod: 'Cash', actorId: 'owner-a',
+        paymentTransactionId: paymentRef.id, accountingTransactionId: accountingRef.id, createdAt,
+      });
+      transaction.set(paymentRef, {
+        shopId: 'shop-a', orderId: orderRef.id, sourceType: 'DUE_COLLECTION', sourceId: dueRef.id, direction: 'IN',
+        status: 'COMPLETED', amount: 10, dueAmount: 40, paymentMethod: 'Cash', payments: [{ kind: 'CASH', label: 'Cash', amount: 10 }],
+        actorId: 'owner-a', idempotencyKey: 'due-allowed', createdAt,
+      });
+      transaction.set(accountingRef, {
+        shopId: 'shop-a', orderId: orderRef.id, sourceType: 'DUE_COLLECTION', sourceId: dueRef.id, direction: 'DEBIT',
+        account: 'CASH', amount: 10, actorId: 'owner-a', idempotencyKey: 'due-allowed', createdAt,
+      });
+    }));
   });
 
   it('records purchase returns with an atomic stock trace', async () => {
