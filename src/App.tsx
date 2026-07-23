@@ -17,6 +17,7 @@ const OwnerSettings = lazy(() => import('./pages/OwnerSettings'));
 const OwnerOperations = lazy(() => import('./pages/OwnerOperations'));
 const OwnerBranches = lazy(() => import('./pages/OwnerBranches'));
 const OwnerReports = lazy(() => import('./pages/OwnerReports'));
+const OwnerCoreModules = lazy(() => import('./pages/OwnerCoreModules'));
 const EmployeeExpenses = lazy(() => import('./pages/EmployeeExpenses'));
 const POSScreen = lazy(() => import('./pages/POSScreen'));
 
@@ -75,6 +76,7 @@ export default function App() {
             <Route path="/owner/operations" element={<Protected roles={['OWNER']}><OwnerOperations /></Protected>} />
             <Route path="/owner/branches" element={<Protected roles={['OWNER']}><OwnerBranches /></Protected>} />
             <Route path="/owner/reports" element={<Protected roles={['OWNER', 'EMPLOYEE']} permission="accessReports"><OwnerReports /></Protected>} />
+            <Route path="/owner/core-modules" element={<Protected roles={['OWNER']}><OwnerCoreModules /></Protected>} />
             <Route path="/expenses" element={<Protected roles={['EMPLOYEE']} permission="recordExpenses"><EmployeeExpenses /></Protected>} />
             <Route path="/pos" element={<Protected roles={['OWNER', 'EMPLOYEE']} permission="create"><POSScreen /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />

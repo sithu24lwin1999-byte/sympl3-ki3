@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt, ClipboardList, Building2, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, Store, Users, Settings, LogOut, Bell, Search, BarChart3, Receipt, ClipboardList, Building2, ShoppingCart, Boxes } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { useLiveCollection, useLiveDocument } from '@/lib/firestore';
-import type { Product, Shop } from '@/types';
+import type { Product, Shop, ShopNotification } from '@/types';
 import { daysRemaining, subscriptionState } from '@/lib/subscriptions';
 
 interface SidebarItem {
@@ -29,6 +29,7 @@ const ownerNav: SidebarItem[] = [
   { icon: ClipboardList, label: 'Business Operations', path: '/owner/operations' },
   { icon: Building2, label: 'Branches & Finance', path: '/owner/branches' },
   { icon: BarChart3, label: 'Accounting & Reports', path: '/owner/reports' },
+  { icon: Boxes, label: 'Core Modules', path: '/owner/core-modules' },
   { icon: Settings, label: 'Settings', path: '/owner/settings' },
 ];
 
@@ -46,7 +47,9 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   const navItems = effectiveRole === 'ADMIN' ? adminNav : effectiveRole === 'EMPLOYEE' ? employeeNav : ownerNav;
   const shop = useLiveDocument<Shop>(user?.shopId ? `shops/${user.shopId}` : null);
   const { data: products } = useLiveCollection<Product>(user?.shopId ? `shops/${user.shopId}/products` : null);
+  const { data: shopNotifications } = useLiveCollection<ShopNotification>(user?.shopId ? `shops/${user.shopId}/notifications` : null, 'createdAt');
   const lowStockCount = products.filter(product => product.itemType !== 'SERVICE' && product.trackStock !== false && product.stock <= product.minStock).length;
+  const visibleNotifications = shopNotifications.filter(item => item.active && (item.audience === 'ALL' || item.audience === effectiveRole));
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const [clock, setClock] = useState(() => new Date());
@@ -140,7 +143,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                 <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 cursor-pointer hover:bg-blue-100">
                   <Bell className="w-5 h-5" />
                 </button>
-                {lowStockCount > 0 && <span className="absolute top-0 right-0 min-w-4 h-4 px-1 bg-red-500 border border-white rounded-full text-[9px] text-white grid place-items-center">{lowStockCount}</span>}
+                {lowStockCount + visibleNotifications.length > 0 && <span className="absolute top-0 right-0 min-w-4 h-4 px-1 bg-red-500 border border-white rounded-full text-[9px] text-white grid place-items-center">{lowStockCount + visibleNotifications.length}</span>}
                 {showNotifications && (
                   <div className="absolute right-0 top-12 w-72 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl z-50">
                     <p className="px-2 py-1 text-sm font-bold">Notifications</p>
@@ -148,6 +151,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                       <p className="text-xs font-bold text-slate-800">{lowStockCount ? `${lowStockCount} low-stock item${lowStockCount === 1 ? '' : 's'}` : 'All stock levels look good'}</p>
                       <p className="mt-1 text-xs text-slate-500">{effectiveRole === 'ADMIN' ? 'Review tenant plans and shop activity.' : effectiveRole === 'EMPLOYEE' ? 'Return to the point of sale.' : 'Open inventory to review stock levels.'}</p>
                     </button>
+                    {visibleNotifications.slice(0,5).map(item=><div key={item.id} className="border-t px-3 py-3"><p className="text-xs font-bold text-slate-800">{item.title}</p><p className="mt-1 text-xs text-slate-500">{item.message}</p></div>)}
                   </div>
                 )}
               </div>

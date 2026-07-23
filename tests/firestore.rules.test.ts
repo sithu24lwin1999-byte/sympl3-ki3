@@ -36,7 +36,7 @@ describeRules('Ki3 POS Firestore authorization', () => {
         setDoc(doc(db, 'shops/shop-a/orders/own-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'COMPLETED' }),
         setDoc(doc(db, 'shops/shop-a/orders/other-order'), { shopId: 'shop-a', employeeId: 'other', branchId: 'main', status: 'COMPLETED' }),
         setDoc(doc(db, 'shops/shop-a/orders/pending-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'PENDING' }),
-        setDoc(doc(db, 'shops/shop-a/purchases/purchase-a'), { shopId: 'shop-a', total: 100, createdAt: new Date().toISOString() }),
+        setDoc(doc(db, 'shops/shop-a/purchases/purchase-a'), { shopId: 'shop-a', supplierName: 'Supplier', productId: 'product-a', productName: 'A', quantity: 5, unitCost: 20, total: 100, createdAt: new Date().toISOString() }),
         setDoc(doc(db, 'shops/shop-a/dueCollections/due-a'), { shopId: 'shop-a', orderId: 'own-order', amount: 50, paymentMethod: 'Cash', actorId: 'owner-a', createdAt: new Date().toISOString() }),
       ]);
     });
@@ -154,6 +154,29 @@ describeRules('Ki3 POS Firestore authorization', () => {
     await assertFails(setDoc(doc(employeeDb, 'shops/shop-a/dueCollections/blocked'), { shopId: 'shop-a', orderId: 'own-order', amount: 10, paymentMethod: 'Cash', actorId: 'employee-a', createdAt: new Date().toISOString() }));
     const ownerDb = environment.authenticatedContext('owner-a').firestore();
     await assertSucceeds(setDoc(doc(ownerDb, 'shops/shop-a/dueCollections/allowed'), { shopId: 'shop-a', orderId: 'own-order', amount: 10, paymentMethod: 'Cash', actorId: 'owner-a', createdAt: new Date().toISOString() }));
+  });
+
+  it('records purchase returns with an atomic stock trace', async () => {
+    const ownerDb = environment.authenticatedContext('owner-a').firestore();
+    await assertSucceeds(runTransaction(ownerDb, async transaction => {
+      const productRef = doc(ownerDb, 'shops/shop-a/products/product-a');
+      const purchaseRef = doc(ownerDb, 'shops/shop-a/purchases/purchase-a');
+      const movementRef = doc(ownerDb, 'shops/shop-a/stockMovements/purchase-return-movement');
+      const returnRef = doc(ownerDb, 'shops/shop-a/purchaseReturns/purchase-return-a');
+      transaction.update(productRef, { stock: 3, status: 'In Stock', lastMovementId: movementRef.id });
+      transaction.update(purchaseRef, { returnedQuantity: 2, returnStatus: 'PARTIAL' });
+      transaction.set(returnRef, { shopId: 'shop-a', purchaseId: 'purchase-a', productId: 'product-a', quantity: 2, total: 40, actorId: 'owner-a', createdAt: new Date().toISOString() });
+      transaction.set(movementRef, { shopId: 'shop-a', productId: 'product-a', productName: 'A', type: 'PURCHASE_RETURN', quantity: -2, before: 5, balance: 3, reason: 'Damaged', createdAt: new Date().toISOString() });
+    }));
+  });
+
+  it('allows tenant notifications to be read but only owners can publish them', async () => {
+    const ownerDb = environment.authenticatedContext('owner-a').firestore();
+    const employeeDb = environment.authenticatedContext('employee-a').firestore();
+    const reference = doc(ownerDb, 'shops/shop-a/notifications/notice-a');
+    await assertSucceeds(setDoc(reference, { shopId: 'shop-a', title: 'Closing early', message: 'Today only', audience: 'ALL', active: true, createdBy: 'owner-a', createdAt: new Date().toISOString() }));
+    await assertSucceeds(getDoc(doc(employeeDb, reference.path)));
+    await assertFails(setDoc(doc(employeeDb, 'shops/shop-a/notifications/blocked'), { shopId: 'shop-a', title: 'Fake', message: 'No', audience: 'ALL', active: true, createdBy: 'employee-a', createdAt: new Date().toISOString() }));
   });
 
   it('grants platform-wide reads only to an admin custom claim', async () => {

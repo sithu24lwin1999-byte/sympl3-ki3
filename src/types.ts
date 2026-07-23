@@ -285,6 +285,39 @@ export interface Purchase {
   quantity: number;
   unitCost: number;
   total: number;
+  returnedQuantity?: number;
+  returnStatus?: 'NONE' | 'PARTIAL' | 'RETURNED';
+  createdAt: string;
+}
+
+export interface PurchaseReturn {
+  id: string;
+  shopId: string;
+  purchaseId: string;
+  supplierId?: string;
+  supplierName: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitCost: number;
+  total: number;
+  reason: string;
+  actorId: string;
+  actorName: string;
+  createdAt: string;
+}
+
+export interface SalesReturn {
+  id: string;
+  shopId: string;
+  orderId: string;
+  orderNumber: string;
+  customer: string;
+  items: OrderItem[];
+  total: number;
+  reason: string;
+  actorId: string;
+  actorName: string;
   createdAt: string;
 }
 
@@ -299,6 +332,14 @@ export interface Expense {
   category: string;
   note: string;
   amount: number;
+  createdAt: string;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  shopId: string;
+  name: string;
+  active: boolean;
   createdAt: string;
 }
 
@@ -333,7 +374,7 @@ export interface StockMovement {
   orderId?: string;
   productId: string;
   productName: string;
-  type: 'SALE' | 'REFUND' | 'PURCHASE' | 'ADJUSTMENT' | 'STOCK_IN' | 'STOCK_OUT' | 'COUNT';
+  type: 'SALE' | 'REFUND' | 'PURCHASE' | 'PURCHASE_RETURN' | 'ADJUSTMENT' | 'STOCK_IN' | 'STOCK_OUT' | 'COUNT';
   quantity: number;
   before?: number;
   balance: number;
@@ -352,6 +393,19 @@ export interface ShopSettings {
   invoicePrefix: string;
   loyaltyPointsPer1000: number;
   allowNegativeStock: boolean;
+  receipt?: {
+    header: string;
+    footer: string;
+    showLogo: boolean;
+    showTax: boolean;
+    paperWidth: '58mm' | '80mm';
+  };
+  printer?: {
+    mode: 'BROWSER' | 'SYSTEM';
+    copies: number;
+    autoPrint: boolean;
+    cashDrawer: boolean;
+  };
 }
 
 export interface Customer {
@@ -363,4 +417,35 @@ export interface Customer {
   loyaltyPoints?: number;
   outstandingCredit?: number;
   updatedAt: string;
+}
+
+export interface Promotion {
+  id: string;
+  shopId: string;
+  name: string;
+  type: 'PERCENT' | 'FIXED';
+  value: number;
+  minimumPurchase: number;
+  startsAt: string;
+  endsAt: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface Coupon extends Promotion {
+  code: string;
+  usageLimit: number;
+  usedCount: number;
+}
+
+export interface ShopNotification {
+  id: string;
+  shopId: string;
+  title: string;
+  message: string;
+  audience: 'ALL' | 'OWNER' | 'EMPLOYEE';
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  expiresAt?: string;
 }
