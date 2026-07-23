@@ -22,10 +22,10 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6 relative overflow-hidden">
       <ThemeToggle className="absolute right-5 top-5 z-20" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,.3),transparent_45%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,.25),transparent_40%)]" />
-      <Card className="w-full max-w-md relative z-10 p-8 shadow-2xl border-white/10">
+      <div className="absolute inset-x-0 top-0 h-1 bg-blue-600" />
+      <Card className="w-full max-w-md relative z-10 p-8">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-blue-600 rounded-3xl flex items-center justify-center mb-5 shadow-xl shadow-blue-500/30"><Store className="w-8 h-8 text-white" /></div>
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-5"><Store className="w-8 h-8 text-white" /></div>
           <h1 className="text-3xl font-black tracking-tight">KI3 POS</h1>
           <p className="text-slate-500 mt-2">Secure access for admins, owners and staff</p>
         </div>

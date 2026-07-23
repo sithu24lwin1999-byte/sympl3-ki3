@@ -120,7 +120,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="min-h-20 bg-white/95 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-800 backdrop-blur flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
+        <header className="min-h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
           <div className="hidden lg:block">
             <h2 className="text-lg font-bold">{effectiveRole === 'ADMIN' ? 'KI3 POS Administration' : shop?.name || 'My Shop'}</h2>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{clock.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {clock.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
