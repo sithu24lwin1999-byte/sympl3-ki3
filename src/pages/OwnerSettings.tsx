@@ -8,7 +8,11 @@ import { useAuth } from '@/lib/auth';
 import { createRecord, deleteRecord, setRecord, useLiveCollection, useLiveDocumentState } from '@/lib/firestore';
 import type { BusinessType, PaymentAccount, PaymentKind, Shop, ShopSettings } from '@/types';
 
-const defaults: ShopSettings = { businessType: 'RETAIL', taxRate: 5, serviceCharge: 0, invoicePrefix: 'KI3', loyaltyPointsPer1000: 10, allowNegativeStock: false };
+const defaults: ShopSettings = {
+  businessType: 'RETAIL', taxRate: 5, serviceCharge: 0, invoicePrefix: 'KI3', loyaltyPointsPer1000: 10, allowNegativeStock: false,
+  receipt: { header: '', footer: 'Thank you for shopping with us.', showLogo: true, showTax: true, paperWidth: '80mm' },
+  printer: { mode: 'BROWSER', copies: 1, autoPrint: false, cashDrawer: false },
+};
 
 export default function OwnerSettings() {
   const { user } = useAuth();
@@ -27,7 +31,7 @@ export default function OwnerSettings() {
   const dataLoading = shopLoading || settingsLoading || accountsLoading;
   const dataError = shopError || settingsError || accountsError;
 
-  useEffect(() => { if (savedSettings) setSettings({ ...defaults, ...savedSettings }); }, [savedSettings]);
+  useEffect(() => { if (savedSettings) setSettings({ ...defaults, ...savedSettings, receipt: { ...defaults.receipt!, ...savedSettings.receipt }, printer: { ...defaults.printer!, ...savedSettings.printer } }); }, [savedSettings]);
   useEffect(() => { if (shop) setProfile({ name: shop.name || '', phone: shop.phone || '', address: shop.address || '' }); }, [shop]);
 
   const save = async () => {
@@ -110,6 +114,8 @@ export default function OwnerSettings() {
           <label className="flex items-start justify-between gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><span><span className="block font-bold text-amber-900">Allow negative stock at checkout</span><span className="mt-1 block text-sm text-amber-700">Employees may sell beyond available stock. Every deduction remains traceable in stock history.</span></span><input type="checkbox" checked={settings.allowNegativeStock} onChange={event => setSettings({ ...settings, allowNegativeStock: event.target.checked })} className="mt-1 h-5 w-5 accent-blue-600" /></label>
           <div><label className="text-sm font-bold">Invoice prefix</label><Input className="mt-2" value={settings.invoicePrefix} onChange={e => setSettings({ ...settings, invoicePrefix: e.target.value.toUpperCase().slice(0, 8) })} /></div>
           <NumberField label="Loyalty points per 1,000 MMK" value={settings.loyaltyPointsPer1000} onChange={loyaltyPointsPer1000 => setSettings({ ...settings, loyaltyPointsPer1000 })} />
+          <div className="border-t pt-5"><h4 className="font-bold">Receipt Template</h4><div className="mt-3 grid gap-4 md:grid-cols-2"><div><label className="text-sm font-bold">Header text</label><Input className="mt-2" value={settings.receipt?.header || ''} onChange={event=>setSettings({...settings,receipt:{...settings.receipt!,header:event.target.value}})}/></div><div><label className="text-sm font-bold">Footer text</label><Input className="mt-2" value={settings.receipt?.footer || ''} onChange={event=>setSettings({...settings,receipt:{...settings.receipt!,footer:event.target.value}})}/></div><div><label className="text-sm font-bold">Paper width</label><select className="control mt-2 w-full" value={settings.receipt?.paperWidth||'80mm'} onChange={event=>setSettings({...settings,receipt:{...settings.receipt!,paperWidth:event.target.value as '58mm'|'80mm'}})}><option value="58mm">58 mm</option><option value="80mm">80 mm</option></select></div><div className="flex items-end gap-5 pb-3"><label className="text-sm font-bold"><input type="checkbox" className="mr-2" checked={settings.receipt?.showLogo!==false} onChange={event=>setSettings({...settings,receipt:{...settings.receipt!,showLogo:event.target.checked}})}/>Show logo</label><label className="text-sm font-bold"><input type="checkbox" className="mr-2" checked={settings.receipt?.showTax!==false} onChange={event=>setSettings({...settings,receipt:{...settings.receipt!,showTax:event.target.checked}})}/>Show tax</label></div></div></div>
+          <div className="border-t pt-5"><h4 className="font-bold">Printer Settings</h4><div className="mt-3 grid gap-4 md:grid-cols-2"><div><label className="text-sm font-bold">Print mode</label><select className="control mt-2 w-full" value={settings.printer?.mode||'BROWSER'} onChange={event=>setSettings({...settings,printer:{...settings.printer!,mode:event.target.value as 'BROWSER'|'SYSTEM'}})}><option value="BROWSER">Browser print dialog</option><option value="SYSTEM">System printer</option></select></div><NumberField label="Receipt copies" value={settings.printer?.copies||1} onChange={copies=>setSettings({...settings,printer:{...settings.printer!,copies:Math.max(1,Math.min(5,copies))}})}/><label className="text-sm font-bold"><input type="checkbox" className="mr-2" checked={settings.printer?.autoPrint||false} onChange={event=>setSettings({...settings,printer:{...settings.printer!,autoPrint:event.target.checked}})}/>Auto-print after sale</label><label className="text-sm font-bold"><input type="checkbox" className="mr-2" checked={settings.printer?.cashDrawer||false} onChange={event=>setSettings({...settings,printer:{...settings.printer!,cashDrawer:event.target.checked}})}/>Cash drawer integration ready</label></div></div>
         </Card>}
         {activeTab === 'Payments' && <div className="space-y-5">
           <Card className="p-6"><div className="flex items-center gap-3 mb-4"><Building2 className="text-blue-600" /><div><h3 className="font-bold text-lg">KPay, Wave & Bank Accounts</h3><p className="text-sm text-slate-500">Employees see active account details when taking payment. This records payments; it does not transfer money automatically.</p></div></div>

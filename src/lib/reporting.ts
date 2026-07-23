@@ -4,7 +4,7 @@ import type { DueCollection, Expense, Order, Product, Purchase } from '@/types';
 
 export type ReportPeriod = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | 'CUSTOM';
 export interface ReportRange { startDate: string; endDate: string; startIso: string; endIso: string }
-export interface ReportTotals { sales: number; orders: number; initialPaid: number; due: number; purchases: number; expenses: number; dueCollected: number }
+export interface ReportTotals { sales: number; orders: number; initialPaid: number; due: number; purchases: number; purchaseReturns: number; expenses: number; dueCollected: number }
 export interface ReportDetails { orders: Order[]; purchases: Purchase[]; expenses: Expense[]; dueCollections: DueCollection[] }
 
 const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -29,13 +29,14 @@ const rangeQuery = (path: string, startIso: string, endIso: string) => query(col
 const completedOrdersQuery = (shopId: string, startIso: string, endIso: string) => query(collection(db, `shops/${shopId}/orders`), where('status', '==', 'COMPLETED'), where('createdAt', '>=', startIso), where('createdAt', '<=', endIso));
 
 export async function getServerReportTotals(shopId: string, range: ReportRange): Promise<ReportTotals> {
-  const [orders, purchases, expenses, dueCollections] = await Promise.all([
+  const [orders, purchases, purchaseReturns, expenses, dueCollections] = await Promise.all([
     getAggregateFromServer(completedOrdersQuery(shopId, range.startIso, range.endIso), { sales: sum('total'), orders: count(), initialPaid: sum('initialPaidAmount'), due: sum('dueAmount') }),
     getAggregateFromServer(rangeQuery(`shops/${shopId}/purchases`, range.startIso, range.endIso), { total: sum('total') }),
+    getAggregateFromServer(rangeQuery(`shops/${shopId}/purchaseReturns`, range.startIso, range.endIso), { total: sum('total') }),
     getAggregateFromServer(rangeQuery(`shops/${shopId}/expenses`, range.startIso, range.endIso), { total: sum('amount') }),
     getAggregateFromServer(rangeQuery(`shops/${shopId}/dueCollections`, range.startIso, range.endIso), { total: sum('amount') }),
   ]);
-  return { sales: orders.data().sales, orders: orders.data().orders, initialPaid: orders.data().initialPaid, due: orders.data().due, purchases: purchases.data().total, expenses: expenses.data().total, dueCollected: dueCollections.data().total };
+  return { sales: orders.data().sales, orders: orders.data().orders, initialPaid: orders.data().initialPaid, due: orders.data().due, purchases: purchases.data().total, purchaseReturns: purchaseReturns.data().total, expenses: expenses.data().total, dueCollected: dueCollections.data().total };
 }
 
 const mapped = <T extends { id: string }>(snapshot: Awaited<ReturnType<typeof getDocs>>) => snapshot.docs.map(item => ({ id: item.id, ...(item.data() as Record<string, unknown>) } as T));

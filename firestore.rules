@@ -70,7 +70,7 @@ service cloud.firestore {
         && request.resource.data.quantity is number
         && request.resource.data.balance is number
         && (request.resource.data.balance >= 0 || negativeStockEnabled(shopId))
-        && request.resource.data.type in ['SALE', 'REFUND', 'PURCHASE', 'ADJUSTMENT', 'STOCK_IN', 'STOCK_OUT', 'COUNT']
+        && request.resource.data.type in ['SALE', 'REFUND', 'PURCHASE', 'PURCHASE_RETURN', 'ADJUSTMENT', 'STOCK_IN', 'STOCK_OUT', 'COUNT']
         && request.resource.data.reason is string
         && request.resource.data.createdAt is string;
     }
@@ -277,6 +277,29 @@ service cloud.firestore {
         allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
       }
 
+      match /purchaseReturns/{returnId} {
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'accessReports'));
+        allow create: if ownsShop(shopId) && subscriptionActive(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.purchaseId is string
+          && request.resource.data.quantity is number && request.resource.data.quantity > 0
+          && validMoney(request.resource.data.total);
+        allow update, delete: if false;
+      }
+
+      match /salesReturns/{returnId} {
+        allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId)) || (activeTenantMember(shopId) && employeePermission(shopId, 'accessReports'));
+        allow create: if activeTenantMember(shopId)
+          && request.resource.data.shopId == shopId
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.orderId == returnId
+          && request.resource.data.items is list
+          && validMoney(request.resource.data.total)
+          && (ownsShop(shopId) || employeePermission(shopId, 'refund'));
+        allow update, delete: if false;
+      }
+
       match /expenses/{expenseId} {
         allow read: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
           || (activeTenantMember(shopId) && (employeePermission(shopId, 'accessReports') || employeeAtBranch(shopId, resource.data.branchId)));
@@ -303,6 +326,27 @@ service cloud.firestore {
           && request.resource.data.amount > 0
           && request.resource.data.createdAt is string;
         allow update, delete: if false;
+      }
+
+      match /expenseCategories/{categoryId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId))
+          || (activeTenantMember(shopId) && employeePermission(shopId, 'manageSettings'));
+      }
+
+      match /promotions/{promotionId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
+      }
+
+      match /coupons/{couponId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if hasShopAccess(shopId);
+        allow create, update, delete: if isAdmin() || (ownsShop(shopId) && subscriptionActive(shopId));
       }
 
       match /stockMovements/{movementId} {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { addDoc, collection, collectionGroup, deleteDoc, doc, DocumentData, DocumentReference, getDocs, onSnapshot, orderBy, query, runTransaction, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import type { DueCollection, Order, OrderStatus, PaymentKind, Product, StockMovement } from '@/types';
+import type { DueCollection, Order, OrderStatus, PaymentKind, Product, Purchase, PurchaseReturn, SalesReturn, StockMovement } from '@/types';
 import { stockStatus } from './pos';
 
 export function useLiveCollection<T extends { id: string }>(path: string | null, sortField?: string) {
@@ -84,8 +84,8 @@ export const updateRecord = (path: string, id: string, value: DocumentData) => u
 export const deleteRecord = (path: string, id: string) => deleteDoc(doc(db, path, id));
 
 const SHOP_SUBCOLLECTIONS = [
-  'auditLogs', 'branches', 'customers', 'dueCollections', 'employees', 'expenses', 'orders',
-  'heldOrders', 'paymentAccounts', 'products', 'purchases', 'settings', 'shifts',
+  'auditLogs', 'branches', 'coupons', 'customers', 'dueCollections', 'employees', 'expenseCategories', 'expenses', 'notifications', 'orders',
+  'heldOrders', 'paymentAccounts', 'products', 'promotions', 'purchaseReturns', 'purchases', 'salesReturns', 'settings', 'shifts',
   'stockMovements', 'suppliers',
 ] as const;
 
@@ -148,7 +148,12 @@ async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 
     if (status === 'REFUNDED' && current.status !== 'COMPLETED') throw new Error('Only a completed order can be refunded.');
     const restockItems = current.status === 'COMPLETED' ? current.items : [];
     const productRefs = restockItems.map(item => doc(db, `shops/${shopId}/products/${item.productId}`));
-    const snapshots = await Promise.all(productRefs.map(reference => transaction.get(reference)));
+    const customerRef = current.customerPhone ? doc(db, `shops/${shopId}/customers/${current.customerPhone.replace(/\W/g, '')}`) : null;
+    const [snapshots, customerSnapshot, shopSnapshot] = await Promise.all([
+      Promise.all(productRefs.map(reference => transaction.get(reference))),
+      customerRef ? transaction.get(customerRef) : Promise.resolve(null),
+      transaction.get(doc(db, `shops/${shopId}`)),
+    ]);
     for (const [index, item] of restockItems.entries()) {
       const productRef = productRefs[index];
       const snapshot = snapshots[index];
@@ -165,6 +170,17 @@ async function reverseOrder(shopId: string, order: Order, status: 'CANCELLED' | 
       }
     }
     const now = new Date().toISOString();
+    if (status === 'REFUNDED') {
+      const returnRef = doc(db, `shops/${shopId}/salesReturns/${order.id}`);
+      const record: Omit<SalesReturn, 'id'> = {
+        shopId, orderId: order.id, orderNumber: current.orderNumber || current.id, customer: current.customer,
+        items: current.items, total: current.total, reason, actorId: auth.currentUser?.uid || '', actorName: auth.currentUser?.displayName || 'Shop user', createdAt: now,
+      };
+      transaction.set(returnRef, record);
+      if (customerRef && customerSnapshot?.exists() && shopSnapshot.data()?.ownerId === auth.currentUser?.uid && (current.dueAmount || 0) > 0) {
+        transaction.update(customerRef, { outstandingCredit: Math.max(0, (customerSnapshot.data().outstandingCredit || 0) - (current.dueAmount || 0)), updatedAt: now });
+      }
+    }
     transaction.update(orderRef, status === 'REFUNDED'
       ? { status, refundedAt: now, refundReason: reason }
       : { status, cancelledAt: now, cancelReason: reason });
@@ -193,12 +209,15 @@ export async function collectOrderDue(shopId: string, orderId: string, input: {
     const due = order.dueAmount ?? (order.paymentKind === 'CREDIT' ? order.total : 0);
     if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > due) throw new Error(`Collection must be between 1 and ${due}.`);
     const paid = order.paidAmount ?? Math.max(0, order.total - due);
+    const customerRef = order.customerPhone ? doc(db, `shops/${shopId}/customers/${order.customerPhone.replace(/\W/g, '')}`) : null;
+    const customerSnapshot = customerRef ? await transaction.get(customerRef) : null;
     const record: Omit<DueCollection, 'id'> = {
       shopId, orderId, orderNumber: order.orderNumber || order.id, customer: order.customer,
       amount: input.amount, paymentKind: input.paymentKind, paymentMethod: input.paymentMethod,
       reference: input.reference?.trim() || '', actorId: input.actorId, actorName: input.actorName, createdAt,
     };
     transaction.update(orderRef, { paidAmount: paid + input.amount, dueAmount: due - input.amount, statusUpdatedAt: createdAt });
+    if (customerRef && customerSnapshot?.exists()) transaction.update(customerRef, { outstandingCredit: Math.max(0, (customerSnapshot.data().outstandingCredit || 0) - input.amount), updatedAt: createdAt });
     transaction.set(collectionRef, record);
   });
   return collectionRef.id;
@@ -246,6 +265,40 @@ export async function receivePurchase(shopId: string, input: {
     });
   });
   return purchaseRef.id;
+}
+
+export async function returnPurchase(shopId: string, purchaseId: string, input: { quantity: number; reason: string; actorId: string; actorName: string }) {
+  const purchaseRef = doc(db, `shops/${shopId}/purchases/${purchaseId}`);
+  const returnRef = doc(collection(db, `shops/${shopId}/purchaseReturns`));
+  const now = new Date().toISOString();
+  await runTransaction(db, async transaction => {
+    const purchaseSnapshot = await transaction.get(purchaseRef);
+    if (!purchaseSnapshot.exists()) throw new Error('Purchase not found.');
+    const purchase = { id: purchaseSnapshot.id, ...purchaseSnapshot.data() } as Purchase;
+    const alreadyReturned = purchase.returnedQuantity || 0;
+    const available = purchase.quantity - alreadyReturned;
+    if (!Number.isFinite(input.quantity) || input.quantity <= 0 || input.quantity > available) throw new Error(`Return quantity must be between 1 and ${available}.`);
+    const productRef = doc(db, `shops/${shopId}/products/${purchase.productId}`);
+    const productSnapshot = await transaction.get(productRef);
+    if (!productSnapshot.exists()) throw new Error('Product not found.');
+    const product = productSnapshot.data() as Product;
+    if (product.itemType === 'SERVICE' || product.trackStock === false) throw new Error('This item does not track stock.');
+    if (product.stock < input.quantity) throw new Error(`Only ${product.stock} item(s) are currently available to return.`);
+    const stock = product.stock - input.quantity;
+    const returnedQuantity = alreadyReturned + input.quantity;
+    const movementRef = doc(collection(db, `shops/${shopId}/stockMovements`));
+    const record: Omit<PurchaseReturn, 'id'> = {
+      shopId, purchaseId, supplierId: purchase.supplierId, supplierName: purchase.supplierName,
+      productId: purchase.productId, productName: purchase.productName, quantity: input.quantity,
+      unitCost: purchase.unitCost, total: purchase.unitCost * input.quantity, reason: input.reason,
+      actorId: input.actorId, actorName: input.actorName, createdAt: now,
+    };
+    transaction.update(productRef, { stock, status: stockStatus(stock, product.minStock), lastMovementId: movementRef.id, updatedAt: now });
+    transaction.update(purchaseRef, { returnedQuantity, returnStatus: returnedQuantity === purchase.quantity ? 'RETURNED' : 'PARTIAL' });
+    transaction.set(returnRef, record);
+    transaction.set(movementRef, { shopId, productId: purchase.productId, productName: purchase.productName, type: 'PURCHASE_RETURN', quantity: -input.quantity, before: product.stock, balance: stock, reason: input.reason, actorId: input.actorId, actorName: input.actorName, sourceId: returnRef.id, createdAt: now } satisfies Omit<StockMovement, 'id'>);
+  });
+  return returnRef.id;
 }
 
 export async function saveInventoryProduct(shopId: string, input: Omit<Product, 'id' | 'shopId' | 'status'> & { stock: number }, actor: { id: string; name: string }, productId?: string) {
