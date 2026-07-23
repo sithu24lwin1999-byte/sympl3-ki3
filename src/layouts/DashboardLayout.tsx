@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { useLiveCollection, useLiveDocument } from '@/lib/firestore';
 import type { Product, Shop, ShopNotification } from '@/types';
 import { daysRemaining, subscriptionState } from '@/lib/subscriptions';
+import { ThemeToggle } from '@/lib/theme';
 
 interface SidebarItem {
   icon: React.ElementType;
@@ -66,7 +67,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 overflow-hidden">
+    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-[#111827] flex flex-col shrink-0 hidden lg:flex sticky top-0 h-screen p-6">
         <div className="flex items-center gap-3 mb-10 px-2">
@@ -119,7 +120,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="min-h-20 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
+        <header className="min-h-20 bg-white/95 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-800 backdrop-blur flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
           <div className="hidden lg:block">
             <h2 className="text-lg font-bold">{effectiveRole === 'ADMIN' ? 'KI3 POS Administration' : shop?.name || 'My Shop'}</h2>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{clock.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {clock.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
@@ -127,7 +128,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
           
           <div className="flex items-center gap-3 lg:gap-6 lg:ml-auto">
             {effectiveRole === 'OWNER' && currentSubscription && <span className={cn('hidden sm:inline-flex rounded-full px-3 py-1 text-[10px] font-bold', currentSubscription === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : currentSubscription === 'TRIAL' || currentSubscription === 'EXPIRING_SOON' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700')}>{currentSubscription.replace('_', ' ')}</span>}
-            <form onSubmit={handleSearch} className="flex items-center bg-slate-100 rounded-full px-4 py-2 gap-3 w-48 md:w-64">
+            <form onSubmit={handleSearch} className="flex items-center bg-slate-100 rounded-full px-3 md:px-4 py-2 gap-2 md:gap-3 w-32 sm:w-48 md:w-64">
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
@@ -137,6 +138,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                 onChange={(e) => setGlobalSearch(e.target.value)}
               />
             </form>
+            <ThemeToggle className="h-10 w-10" />
             
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -167,11 +169,11 @@ export default function DashboardLayout({ children, role }: { children: React.Re
             </div>
           </div>
         </header>
-        <nav className="lg:hidden flex gap-2 overflow-x-auto px-4 py-2 bg-slate-900">
+        <nav aria-label="Mobile navigation" className="lg:hidden flex gap-2 overflow-x-auto px-4 py-2 bg-slate-900">
           {navItems.map(item => <Link key={item.path} to={item.path} className={cn('shrink-0 px-3 py-2 rounded-xl text-xs font-bold', location.pathname === item.path ? 'bg-blue-600 text-white' : 'text-slate-300')}><item.icon className="w-4 h-4 inline mr-1" />{item.label}</Link>)}
           <button onClick={logout} className="shrink-0 px-3 py-2 text-xs font-bold text-red-300">Sign Out</button>
         </nav>
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto">
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto dark:bg-slate-950">
           <div className="max-w-7xl mx-auto h-full flex flex-col">
             {children}
           </div>
