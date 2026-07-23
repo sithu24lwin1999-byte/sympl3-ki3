@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/lib/auth';
 import { createRecord, deleteRecord, setRecord, useLiveCollection, useLiveDocumentState } from '@/lib/firestore';
 import type { BusinessType, PaymentAccount, PaymentKind, Shop, ShopSettings } from '@/types';
+import { useConfirm, useToast } from '@/lib/feedback';
 
 const defaults: ShopSettings = {
   businessType: 'RETAIL', taxRate: 5, serviceCharge: 0, invoicePrefix: 'KI3', loyaltyPointsPer1000: 10, allowNegativeStock: false,
@@ -16,6 +17,7 @@ const defaults: ShopSettings = {
 
 export default function OwnerSettings() {
   const { user } = useAuth();
+  const confirm = useConfirm(); const toast = useToast();
   const shopId = user?.shopId || '';
   const { data: shop, loading: shopLoading, error: shopError } = useLiveDocumentState<Shop>(shopId ? `shops/${shopId}` : null);
   const { data: savedSettings, loading: settingsLoading, error: settingsError } = useLiveDocumentState<ShopSettings>(shopId ? `shops/${shopId}/settings/general` : null);
@@ -49,8 +51,8 @@ export default function OwnerSettings() {
         ]);
       }
       await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'SETTINGS_UPDATED', detail: activeTab, createdAt: new Date().toISOString() });
-      setSaved(true); window.setTimeout(() => setSaved(false), 1800);
-    } catch (issue) { setSaveError(issue instanceof Error ? issue.message : 'Unable to save shop settings.'); }
+      setSaved(true); toast('Shop settings saved.'); window.setTimeout(() => setSaved(false), 1800);
+    } catch (issue) { const message=issue instanceof Error ? issue.message : 'Unable to save shop settings.';setSaveError(message);toast(message,'error'); }
     finally { setSaving(false); }
   };
 
@@ -61,7 +63,8 @@ export default function OwnerSettings() {
       await createRecord(`shops/${shopId}/paymentAccounts`, { ...account, shopId, active: true, createdAt: new Date().toISOString() });
       await createRecord(`shops/${shopId}/auditLogs`, { shopId, actorId: user!.id, actorName: user!.name, action: 'PAYMENT_ACCOUNT_CREATED', detail: account.label, createdAt: new Date().toISOString() });
       setAccount({ kind: 'KPAY', label: '', accountName: '', accountNumber: '', bankName: '', qrCode: '' });
-    } catch (issue) { setSaveError(issue instanceof Error ? issue.message : 'Unable to add this payment account.'); }
+      toast('Payment account added.');
+    } catch (issue) { const message=issue instanceof Error ? issue.message : 'Unable to add this payment account.';setSaveError(message);toast(message,'error'); }
   };
 
   const chooseQr = async (file?: File) => {
@@ -82,6 +85,7 @@ export default function OwnerSettings() {
       await updateDoc(doc(db, `shops/${shopId}/paymentAccounts/${item.id}`), { qrCode, updatedAt: new Date().toISOString() });
     } catch (issue) { setQrError(issue instanceof Error ? issue.message : 'Unable to save QR image.'); }
   };
+  const removeAccount = async (item: PaymentAccount) => { if (await confirm({title:'Delete payment account?',message:`${item.label} will no longer be available at checkout. Historical payments are retained.`,confirmLabel:'Delete Account',danger:true})) { await deleteRecord(`shops/${shopId}/paymentAccounts`,item.id); toast('Payment account deleted.'); } };
 
   return <DashboardLayout role="OWNER">
     <div className="flex flex-wrap justify-between items-end gap-4 mb-8">
@@ -133,7 +137,7 @@ export default function OwnerSettings() {
             </div>
             {qrError && <p className="mt-3 text-sm font-medium text-red-600">{qrError}</p>}
           </Card>
-          <div className="grid md:grid-cols-2 gap-4">{accounts.map(item => <Card key={item.id} className="p-5"><div className="flex justify-between gap-3"><div className="min-w-0"><Badge>{item.kind}</Badge><h4 className="font-bold mt-2">{item.label}</h4><p className="text-sm text-slate-500">{item.bankName ? `${item.bankName} • ` : ''}{item.accountName}</p><p className="mt-2 font-mono font-bold text-blue-700">{item.accountNumber}</p>{item.qrCode && <img src={item.qrCode} alt={`${item.label} QR Code`} className="mt-3 h-32 w-32 rounded-xl border bg-white object-contain p-2" />}{!['BANK', 'CARD'].includes(item.kind) && <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700"><ImagePlus className="h-4 w-4" />{item.qrCode ? 'Change QR' : 'Add QR'}<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void updateAccountQr(item, event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>}</div><button aria-label={`Delete ${item.label}`} onClick={() => window.confirm('Delete this payment account?') && deleteRecord(`shops/${shopId}/paymentAccounts`, item.id)} className="self-start text-red-500"><Trash2 className="w-5 h-5" /></button></div></Card>)}</div>
+          <div className="grid md:grid-cols-2 gap-4">{accounts.map(item => <Card key={item.id} className="p-5"><div className="flex justify-between gap-3"><div className="min-w-0"><Badge>{item.kind}</Badge><h4 className="font-bold mt-2">{item.label}</h4><p className="text-sm text-slate-500">{item.bankName ? `${item.bankName} • ` : ''}{item.accountName}</p><p className="mt-2 font-mono font-bold text-blue-700">{item.accountNumber}</p>{item.qrCode && <img src={item.qrCode} alt={`${item.label} QR Code`} className="mt-3 h-32 w-32 rounded-xl border bg-white object-contain p-2" />}{!['BANK', 'CARD'].includes(item.kind) && <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700"><ImagePlus className="h-4 w-4" />{item.qrCode ? 'Change QR' : 'Add QR'}<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void updateAccountQr(item, event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>}</div><button aria-label={`Delete ${item.label}`} onClick={() => void removeAccount(item)} className="self-start rounded-lg p-2 text-red-500 hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-500"><Trash2 className="w-5 h-5" /></button></div></Card>)}</div>
         </div>}
       </div>
     </div>

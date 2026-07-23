@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { Store, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { ThemeToggle } from '@/lib/theme';
 
 export default function Login() {
   const { login, resetPassword } = useAuth();
@@ -20,6 +21,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6 relative overflow-hidden">
+      <ThemeToggle className="absolute right-5 top-5 z-20" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,.3),transparent_45%),radial-gradient(circle_at_bottom_right,rgba(124,58,237,.25),transparent_40%)]" />
       <Card className="w-full max-w-md relative z-10 p-8 shadow-2xl border-white/10">
         <div className="flex flex-col items-center mb-8">

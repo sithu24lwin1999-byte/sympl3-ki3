@@ -1,18 +1,12 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { motion } from 'framer-motion';
-import { AlertCircle, Inbox, Loader2 } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { AlertCircle, Inbox } from 'lucide-react';
 
-export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <motion.div 
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0 }}
-    className={cn("bg-white border border-slate-100 shadow-sm rounded-3xl p-6", className)} 
-    {...props}
-  >
-    {children}
-  </motion.div>
-);
+export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTMLDivElement>) => {
+  const reducedMotion = useReducedMotion();
+  return <motion.div initial={reducedMotion?false:{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{duration:.22}} className={cn("ui-card bg-white border border-slate-200/70 shadow-sm rounded-2xl p-6 dark:border-slate-800 dark:bg-slate-900",className)} {...props}>{children}</motion.div>;
+};
 
 export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' }>(
   ({ className, variant = 'primary', type = 'button', ...props }, ref) => {
@@ -28,7 +22,7 @@ export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttrib
         ref={ref}
         type={type}
         className={cn(
-          "inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none",
+          "min-h-11 inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition-all active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950",
           variants[variant],
           className
         )}
@@ -44,7 +38,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        "flex h-12 w-full rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 px-4 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 transition-all",
+        "flex h-12 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-4 py-2 text-sm ring-offset-white dark:ring-offset-slate-950 file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 transition-all",
         className
       )}
       {...props}
@@ -67,8 +61,10 @@ export const Badge = ({ children, className, variant = 'default' }: { children: 
   );
 };
 
+export function Skeleton({ className }: { className?: string }) { return <div aria-hidden="true" className={cn('skeleton h-4 rounded-lg bg-slate-200 dark:bg-slate-800',className)}/>; }
+
 export function DataState({ loading, error, empty, emptyMessage = 'No records yet.' }: { loading?: boolean; error?: string | null; empty?: boolean; emptyMessage?: string }) {
-  if (loading) return <div role="status" className="flex items-center justify-center gap-2 p-8 text-sm font-medium text-slate-500"><Loader2 className="h-4 w-4 animate-spin text-blue-600" />Loading data…</div>;
+  if (loading) return <div role="status" aria-label="Loading data" className="space-y-3 p-6"><Skeleton className="h-4 w-1/3"/><Skeleton className="h-12 w-full"/><Skeleton className="h-12 w-full"/><span className="sr-only">Loading data…</span></div>;
   if (error) return <div role="alert" className="m-4 flex items-start gap-2 rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>Unable to load data. {error}</span></div>;
   if (empty) return <div className="flex flex-col items-center justify-center gap-2 p-8 text-center text-sm text-slate-400"><Inbox className="h-6 w-6" /><span>{emptyMessage}</span></div>;
   return null;

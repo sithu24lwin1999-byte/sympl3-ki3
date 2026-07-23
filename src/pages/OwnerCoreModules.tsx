@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { createRecord, refundOrder, returnPurchase, setRecord, updateRecord, useLiveCollection } from '@/lib/firestore';
 import { formatCurrency } from '@/lib/utils';
 import type { AuditLog, Coupon, Customer, ExpenseCategory, Order, Promotion, Purchase, PurchaseReturn, SalesReturn, ShopNotification } from '@/types';
+import { useConfirm, useToast } from '@/lib/feedback';
 
 type Tab = 'RETURNS' | 'CUSTOMERS' | 'CAMPAIGNS' | 'NOTIFICATIONS' | 'DATA';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -15,6 +16,7 @@ const inThirtyDays = () => { const date = new Date(); date.setDate(date.getDate(
 
 export default function OwnerCoreModules() {
   const { user } = useAuth(); const shopId = user?.shopId || '';
+  const confirm = useConfirm(); const toast = useToast();
   const path = (name: string) => shopId ? `shops/${shopId}/${name}` : null;
   const { data: purchases } = useLiveCollection<Purchase>(path('purchases'), 'createdAt');
   const { data: purchaseReturns } = useLiveCollection<PurchaseReturn>(path('purchaseReturns'), 'createdAt');
@@ -35,7 +37,7 @@ export default function OwnerCoreModules() {
   const [coupon, setCoupon] = useState({ code: '', name: '', type: 'PERCENT' as 'PERCENT'|'FIXED', value: '', minimumPurchase: '0', usageLimit: '100', startsAt: today(), endsAt: inThirtyDays() });
   const [notification, setNotification] = useState({ title: '', message: '', audience: 'ALL' as 'ALL'|'OWNER'|'EMPLOYEE' });
   const audit = (action:string,detail:string) => createRecord(`shops/${shopId}/auditLogs`,{shopId,actorId:user!.id,actorName:user!.name,action,detail,createdAt:new Date().toISOString()});
-  const run = async (action:()=>Promise<unknown>, success:string) => { setBusy(true); setMessage(''); try { await action(); setMessage(success); } catch (issue) { setMessage(issue instanceof Error?issue.message:'Unable to complete this action.'); } finally { setBusy(false); } };
+  const run = async (action:()=>Promise<unknown>, success:string) => { setBusy(true); setMessage(''); try { await action(); setMessage(success); toast(success); } catch (issue) { const text=issue instanceof Error?issue.message:'Unable to complete this action.';setMessage(text);toast(text,'error'); } finally { setBusy(false); } };
 
   const savePurchaseReturn = () => run(async()=>{const purchase=purchases.find(item=>item.id===purchaseReturn.purchaseId);if(!purchase)throw new Error('Select a purchase.');await returnPurchase(shopId,purchase.id,{quantity:Number(purchaseReturn.quantity),reason:purchaseReturn.reason.trim()||'Returned to supplier',actorId:user!.id,actorName:user!.name});await audit('PURCHASE_RETURNED',`${purchase.productName} × ${purchaseReturn.quantity}`);setPurchaseReturn({purchaseId:'',quantity:'1',reason:''})},'Purchase return recorded and stock updated.');
   const saveSalesReturn = () => run(async()=>{const order=orders.find(item=>item.id===saleReturn.orderId);if(!order)throw new Error('Select a completed sale.');await refundOrder(shopId,order,saleReturn.reason.trim()||'Customer return');await audit('SALES_RETURNED',order.orderNumber||order.id);setSaleReturn({orderId:'',reason:''})},'Sales return recorded and stock restored.');
@@ -46,7 +48,7 @@ export default function OwnerCoreModules() {
   const addCoupon = () => run(async()=>{if(!coupon.code.trim()||!coupon.name.trim()||Number(coupon.value)<=0)throw new Error('Enter coupon code, name and value.');await createRecord(`shops/${shopId}/coupons`,{...coupon,code:coupon.code.trim().toUpperCase(),value:Number(coupon.value),minimumPurchase:Number(coupon.minimumPurchase)||0,usageLimit:Number(coupon.usageLimit)||0,usedCount:0,shopId,active:true,createdAt:new Date().toISOString()});await audit('COUPON_CREATED',coupon.code.toUpperCase());setCoupon({...coupon,code:'',name:'',value:''})},'Coupon saved.');
   const addNotification = () => run(async()=>{if(!notification.title.trim()||!notification.message.trim())throw new Error('Enter title and message.');await createRecord(`shops/${shopId}/notifications`,{...notification,shopId,active:true,createdBy:user!.id,createdAt:new Date().toISOString()});await audit('NOTIFICATION_CREATED',notification.title);setNotification({title:'',message:'',audience:'ALL'})},'Notification published.');
   const exportBackup = () => run(async()=>{const backup=await createShopBackup(shopId);downloadText(`ki3-backup-${shopId}-${today()}.json`,JSON.stringify(backup,null,2),'application/json') ;await audit('BACKUP_EXPORTED',backup.createdAt)},'Backup downloaded.');
-  const importBackup = (file?:File) => { if(!file)return; void run(async()=>{if(!window.confirm('Restore this backup into the current shop? Existing record IDs will be updated.'))return;const backup=parseShopBackup(await file.text(),shopId);const count=await restoreShopBackup(backup);await audit('BACKUP_RESTORED',`${count} records from ${backup.createdAt}`)},'Backup restored. Reload to see all restored records.'); };
+  const importBackup = (file?:File) => { if(!file)return; void run(async()=>{if(!await confirm({title:'Restore shop backup?',message:'Existing matching records in this shop will be merged with the selected backup. Authentication accounts and immutable logs are not changed.',confirmLabel:'Restore Backup',danger:true}))return;const backup=parseShopBackup(await file.text(),shopId);const count=await restoreShopBackup(backup);await audit('BACKUP_RESTORED',`${count} records from ${backup.createdAt}`)},'Backup restored. Reload to see all restored records.'); };
   const availablePurchases=purchases.filter(item=>(item.returnedQuantity||0)<item.quantity); const refundableOrders=orders.filter(item=>item.status==='COMPLETED');
 
   return <DashboardLayout role="OWNER"><div className="space-y-6"><div><h1 className="text-3xl font-black">Core Modules</h1><p className="mt-2 text-slate-500">Returns, customer loyalty, campaigns, notifications and data safety.</p></div>
