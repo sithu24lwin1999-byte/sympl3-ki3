@@ -12,7 +12,7 @@ import { useLiveCollection, useLiveDocumentState } from '@/lib/firestore';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { Customer, Expense, Order, Product, Shop } from '@/types';
 
-const COLORS = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4'];
+const COLORS = ['#71806A', '#A59677', '#D19A5B', '#8C7A91', '#B66B62', '#6F9092'];
 const completed = (order: Order) => order.status === 'COMPLETED';
 const dateOffset = (days: number) => { const date = new Date(); date.setDate(date.getDate() + days); return localDateKey(date.toISOString()); };
 
@@ -89,7 +89,7 @@ export default function OwnerDashboard() {
   </DashboardLayout>;
 }
 
-function Metric({label,value,note,icon:Icon,accent}:{label:string;value:string;note:string;icon:React.ElementType;accent?:boolean}){return <Card className={cn('p-5 h-full',accent&&'bg-blue-600 text-white')}><div className="flex justify-between"><p className={cn('text-xs font-bold uppercase tracking-wider',accent?'text-white/70':'text-slate-400')}>{label}</p><Icon className={cn('w-4 h-4',accent?'text-white':'text-blue-600')}/></div><p className="text-2xl font-black mt-4">{value}</p><p className={cn('text-xs mt-2',accent?'text-white/75':'text-slate-400')}>{note}</p></Card>}
+function Metric({label,value,note,icon:Icon,accent}:{label:string;value:string;note:string;icon:React.ElementType;accent?:boolean}){return <Card className={cn('h-full p-5',accent&&'border-[#cdd7c9] bg-[#eef1e9]')}><div className="flex justify-between"><p className={cn('text-xs font-bold uppercase tracking-wider',accent?'text-[#657460]':'text-slate-400')}>{label}</p><span className={cn('grid h-8 w-8 place-items-center rounded-xl',accent?'bg-white text-[#657460]':'bg-[#f0eee7] text-[#71806a]')}><Icon className="h-4 w-4"/></span></div><p className="mt-4 text-2xl font-black">{value}</p><p className={cn('mt-2 text-xs',accent?'text-[#657460]':'text-slate-400')}>{note}</p></Card>}
 function ChartCard({title,children,compact=false}:{title:string;children:React.ReactElement;compact?:boolean}){return <Card><h3 className="font-bold mb-6">{title}</h3><div className={compact?'h-72':'h-72'}><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div></Card>}
 function PieCard({title,data}:{title:string;data:Array<{name:string;value:number}>}){return <Card><h3 className="font-bold mb-3">{title}</h3>{data.length===0||data.every(item=>item.value===0)?<div className="h-72 grid place-items-center text-sm text-slate-400">No sales data yet.</div>:<div className="h-72"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={3}>{data.map((item,index)=><Cell key={item.name} fill={COLORS[index%COLORS.length]}/>)}</Pie><Tooltip formatter={moneyTooltip}/><Legend/></PieChart></ResponsiveContainer></div>}</Card>}
 const shortMoney=(value:number)=>value>=1000000?`${(value/1000000).toFixed(1)}M`:`${Math.round(value/1000)}k`;

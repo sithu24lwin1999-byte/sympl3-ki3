@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Button, Card, Input } from '@/components/ui';
 import { Store, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
-import { ThemeToggle } from '@/lib/theme';
 
 export default function Login() {
   const { login, resetPassword } = useAuth();
@@ -20,12 +19,11 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6 relative overflow-hidden">
-      <ThemeToggle className="absolute right-5 top-5 z-20" />
-      <div className="absolute inset-x-0 top-0 h-1 bg-blue-600" />
-      <Card className="w-full max-w-md relative z-10 p-8">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f5f4ef] p-6">
+      <div className="absolute inset-x-0 top-0 h-1 bg-[#71806a]" />
+      <Card className="relative z-10 w-full max-w-md border-[#e5e1d7] p-8">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-5"><Store className="w-8 h-8 text-white" /></div>
+          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#71806a]"><Store className="w-8 h-8 text-white" /></div>
           <h1 className="text-3xl font-black tracking-tight">KI3 POS</h1>
           <p className="text-slate-500 mt-2">Secure access for admins, owners and staff</p>
         </div>
@@ -34,7 +32,7 @@ export default function Login() {
           <div><label className="block text-sm font-bold mb-2">Password</label><Input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></div>
           {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
           <Button type="submit" disabled={busy} className="w-full h-13">{busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Sign In</Button>
-          <button type="button" disabled={busy} onClick={() => run(async () => { await resetPassword(email); setMessage('Password reset link sent. Please check your email.'); })} className="w-full text-sm font-bold text-blue-600 hover:text-blue-700">Forgot password?</button>
+          <button type="button" disabled={busy} onClick={() => run(async () => { await resetPassword(email); setMessage('Password reset link sent. Please check your email.'); })} className="w-full text-sm font-bold text-[#5f725a] hover:text-[#465741]">Forgot password?</button>
         </form>
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-700">{message}</p>}
       </Card>
