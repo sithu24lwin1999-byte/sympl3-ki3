@@ -7,7 +7,6 @@ import { useAuth } from '@/lib/auth';
 import { useLiveCollection, useLiveDocument } from '@/lib/firestore';
 import type { Product, Shop, ShopNotification } from '@/types';
 import { daysRemaining, subscriptionState } from '@/lib/subscriptions';
-import { ThemeToggle } from '@/lib/theme';
 
 interface SidebarItem {
   icon: React.ElementType;
@@ -67,18 +66,18 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100 overflow-hidden">
+    <div className="flex min-h-screen overflow-hidden bg-[#f5f4ef] font-sans text-slate-900">
       {/* Sidebar */}
-      <aside className="w-64 bg-[#111827] flex flex-col shrink-0 hidden lg:flex sticky top-0 h-screen p-6">
-        <div className="flex items-center gap-3 mb-10 px-2">
-          <div className="w-8 h-8 bg-[#3B82F6] rounded-lg flex items-center justify-center">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[#e5e1d7] bg-white p-5 lg:flex">
+        <div className="mb-9 flex items-center gap-3 px-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#71806a]">
             <Store className="w-5 h-5 text-white" />
           </div>
-          <span className="text-white font-bold text-xl tracking-tight">KI3 POS</span>
-          <Badge className="ml-auto text-[10px] bg-white/10 text-white border-none" variant="default">{effectiveRole}</Badge>
+          <span className="text-xl font-black tracking-tight text-slate-900">KI3 POS</span>
+          <Badge className="ml-auto border-none bg-[#eef1e9] text-[10px] text-[#586752]" variant="default">{effectiveRole}</Badge>
         </div>
         
-        <nav className="flex-1 space-y-2">
+        <nav className="flex-1 space-y-1.5">
           {navItems.map((item) => {
             const active = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
             return (
@@ -86,10 +85,10 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                 key={item.path}
                 to={item.path}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors group",
-                  active 
-                    ? "bg-white/10 text-white" 
-                    : "text-slate-400 hover:text-white"
+                  "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors",
+                  active
+                    ? "bg-[#eef1e9] text-[#506149]"
+                    : "text-slate-500 hover:bg-[#f7f6f2] hover:text-slate-900"
                 )}
               >
                 <item.icon className={cn("w-5 h-5", active ? "opacity-100" : "opacity-80")} />
@@ -100,18 +99,18 @@ export default function DashboardLayout({ children, role }: { children: React.Re
         </nav>
 
         {effectiveRole === 'OWNER' && (
-          <div className="mt-auto p-4 bg-slate-800/40 rounded-2xl border border-white/5 mb-4">
-            <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">Subscription</p>
-            <p className="text-white text-xs font-medium mb-2">{shop?.plan || 'Loading plan'}</p>
-            <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden mb-2">
-              <div className="w-3/4 h-full bg-[#3B82F6]"></div>
+          <div className="mt-auto mb-4 rounded-2xl border border-[#e4e1d7] bg-[#faf9f5] p-4">
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Subscription</p>
+            <p className="mb-2 text-xs font-bold text-slate-800">{shop?.plan || 'Loading plan'}</p>
+            <div className="mb-2 h-1 w-full overflow-hidden rounded-full bg-[#e4e1d7]">
+              <div className="h-full w-3/4 bg-[#809079]"></div>
             </div>
-            <p className="text-[10px] text-slate-400">{shop ? `${Math.max(0, daysRemaining(shop.expiry))} days remaining · ${currentSubscription?.replace('_', ' ')}` : 'Loading subscription…'}</p>
+            <p className="text-[10px] text-slate-500">{shop ? `${Math.max(0, daysRemaining(shop.expiry))} days remaining · ${currentSubscription?.replace('_', ' ')}` : 'Loading subscription…'}</p>
           </div>
         )}
 
-        <div className="pt-4 border-t border-white/5">
-          <Button variant="ghost" onClick={logout} className="w-full justify-start text-slate-400 hover:text-white hover:bg-white/10 h-10 px-3">
+        <div className="border-t border-[#e5e1d7] pt-4">
+          <Button variant="ghost" onClick={logout} className="h-10 w-full justify-start px-3 text-slate-500 hover:bg-red-50 hover:text-red-600">
               <LogOut className="w-5 h-5 mr-3 opacity-80" />
               Sign Out
           </Button>
@@ -120,7 +119,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="min-h-20 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 md:px-8 py-3 sticky top-0 z-20 shrink-0">
+        <header className="sticky top-0 z-20 flex min-h-20 shrink-0 items-center justify-between border-b border-[#e5e1d7] bg-white px-4 py-3 md:px-8">
           <div className="hidden lg:block">
             <h2 className="text-lg font-bold">{effectiveRole === 'ADMIN' ? 'KI3 POS Administration' : shop?.name || 'My Shop'}</h2>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{clock.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {clock.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
@@ -128,7 +127,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
           
           <div className="flex items-center gap-3 lg:gap-6 lg:ml-auto">
             {effectiveRole === 'OWNER' && currentSubscription && <span className={cn('hidden sm:inline-flex rounded-full px-3 py-1 text-[10px] font-bold', currentSubscription === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : currentSubscription === 'TRIAL' || currentSubscription === 'EXPIRING_SOON' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700')}>{currentSubscription.replace('_', ' ')}</span>}
-            <form onSubmit={handleSearch} className="flex items-center bg-slate-100 rounded-full px-3 md:px-4 py-2 gap-2 md:gap-3 w-32 sm:w-48 md:w-64">
+            <form onSubmit={handleSearch} className="flex w-32 items-center gap-2 rounded-full border border-[#e7e3da] bg-[#f8f7f3] px-3 py-2 sm:w-48 md:w-64 md:gap-3 md:px-4">
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
@@ -138,11 +137,9 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                 onChange={(e) => setGlobalSearch(e.target.value)}
               />
             </form>
-            <ThemeToggle className="h-10 w-10" />
-            
             <div className="flex items-center gap-3">
               <div className="relative">
-                <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 cursor-pointer hover:bg-blue-100">
+                <button aria-label="Notifications" onClick={() => setShowNotifications(!showNotifications)} className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-[#f3f2ed] text-slate-600 hover:bg-[#e8eee5] hover:text-[#596b54]">
                   <Bell className="w-5 h-5" />
                 </button>
                 {lowStockCount + visibleNotifications.length > 0 && <span className="absolute top-0 right-0 min-w-4 h-4 px-1 bg-red-500 border border-white rounded-full text-[9px] text-white grid place-items-center">{lowStockCount + visibleNotifications.length}</span>}
@@ -162,18 +159,18 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                   <p className="text-sm font-bold leading-none">{user?.name}</p>
                   <p className="text-[11px] text-slate-400">{user?.role}</p>
                 </div>
-                <div className="w-10 h-10 rounded-full bg-blue-100 overflow-hidden border-2 border-white ring-1 ring-slate-200 flex items-center justify-center text-blue-700 font-bold">
+                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-[#e8eee5] font-bold text-[#596b54] ring-1 ring-[#ddd9ce]">
                   {user?.name?.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'KI'}
                 </div>
               </div>
             </div>
           </div>
         </header>
-        <nav aria-label="Mobile navigation" className="lg:hidden flex gap-2 overflow-x-auto px-4 py-2 bg-slate-900">
-          {navItems.map(item => <Link key={item.path} to={item.path} className={cn('shrink-0 px-3 py-2 rounded-xl text-xs font-bold', location.pathname === item.path ? 'bg-blue-600 text-white' : 'text-slate-300')}><item.icon className="w-4 h-4 inline mr-1" />{item.label}</Link>)}
-          <button onClick={logout} className="shrink-0 px-3 py-2 text-xs font-bold text-red-300">Sign Out</button>
+        <nav aria-label="Mobile navigation" className="flex gap-2 overflow-x-auto border-b border-[#e5e1d7] bg-white px-4 py-2 lg:hidden">
+          {navItems.map(item => <Link key={item.path} to={item.path} className={cn('shrink-0 rounded-xl px-3 py-2 text-xs font-bold', location.pathname === item.path ? 'bg-[#71806a] text-white' : 'text-slate-500')}><item.icon className="mr-1 inline h-4 w-4" />{item.label}</Link>)}
+          <button onClick={logout} className="shrink-0 px-3 py-2 text-xs font-bold text-red-500">Sign Out</button>
         </nav>
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto dark:bg-slate-950">
+        <div className="flex-1 overflow-y-auto bg-[#f5f4ef] p-4 md:p-8">
           <div className="max-w-7xl mx-auto h-full flex flex-col">
             {children}
           </div>
@@ -185,7 +182,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
 
 function Badge({ children, className, variant = 'default' }: any) {
   const variants = {
-    default: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300',
+    default: 'bg-[#efeee8] text-slate-700',
   };
   return <span className={cn("px-2 py-0.5 rounded-full font-medium", variants[variant], className)}>{children}</span>;
 }
