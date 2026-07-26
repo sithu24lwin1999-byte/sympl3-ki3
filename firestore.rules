@@ -362,7 +362,8 @@ service cloud.firestore {
           && request.resource.data.purchaseId is string
           && request.resource.data.quantity is number && request.resource.data.quantity > 0
           && validMoney(request.resource.data.total);
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
 
       match /salesReturns/{returnId} {
@@ -374,7 +375,8 @@ service cloud.firestore {
           && request.resource.data.items is list
           && validMoney(request.resource.data.total)
           && (ownsShop(shopId) || employeePermission(shopId, 'refund'));
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
 
       match /expenses/{expenseId} {
@@ -410,7 +412,8 @@ service cloud.firestore {
           && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.sourceId == collectionId
           && getAfter(linkedAccountingPath(shopId, request.resource.data.accountingTransactionId)).data.sourceType == 'DUE_COLLECTION'
           && request.resource.data.createdAt is string;
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
 
       match /paymentTransactions/{transactionId} {
@@ -443,7 +446,8 @@ service cloud.firestore {
               && existsAfter(linkedDuePath(shopId, request.resource.data.sourceId))
               && getAfter(linkedDuePath(shopId, request.resource.data.sourceId)).data.paymentTransactionId == transactionId)
           );
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
 
       match /accountingTransactions/{transactionId} {
@@ -470,7 +474,8 @@ service cloud.firestore {
               && existsAfter(linkedDuePath(shopId, request.resource.data.sourceId))
               && getAfter(linkedDuePath(shopId, request.resource.data.sourceId)).data.accountingTransactionId == transactionId)
           );
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
 
       match /expenseCategories/{categoryId} {
@@ -510,7 +515,8 @@ service cloud.firestore {
           && (getAfter(linkedOrderPath(shopId, request.resource.data.orderId)).data.employeeId == request.auth.uid
             || employeePermission(shopId, 'refund'))
         ));
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isAdmin();
       }
 
       match /auditLogs/{logId} {

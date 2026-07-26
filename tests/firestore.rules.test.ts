@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { assertFails, assertSucceeds, initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { doc, getDoc, runTransaction, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, runTransaction, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 
 const emulator = process.env.FIRESTORE_EMULATOR_HOST;
@@ -38,6 +38,11 @@ describeRules('Ki3 POS Firestore authorization', () => {
         setDoc(doc(db, 'shops/shop-a/orders/pending-order'), { shopId: 'shop-a', employeeId: 'employee-a', branchId: 'main', status: 'PENDING' }),
         setDoc(doc(db, 'shops/shop-a/purchases/purchase-a'), { shopId: 'shop-a', supplierName: 'Supplier', productId: 'product-a', productName: 'A', quantity: 5, unitCost: 20, total: 100, createdAt: new Date().toISOString() }),
         setDoc(doc(db, 'shops/shop-a/dueCollections/due-a'), { shopId: 'shop-a', orderId: 'own-order', amount: 50, paymentMethod: 'Cash', actorId: 'owner-a', createdAt: new Date().toISOString() }),
+        setDoc(doc(db, 'shops/shop-a/paymentTransactions/payment-a'), { shopId: 'shop-a', orderId: 'own-order', amount: 50 }),
+        setDoc(doc(db, 'shops/shop-a/accountingTransactions/accounting-a'), { shopId: 'shop-a', orderId: 'own-order', amount: 100 }),
+        setDoc(doc(db, 'shops/shop-a/stockMovements/movement-history'), { shopId: 'shop-a', productId: 'product-a', quantity: -1 }),
+        setDoc(doc(db, 'shops/shop-a/purchaseReturns/purchase-return-history'), { shopId: 'shop-a', purchaseId: 'purchase-a', quantity: 1 }),
+        setDoc(doc(db, 'shops/shop-a/salesReturns/sales-return-history'), { shopId: 'shop-a', orderId: 'own-order', quantity: 1 }),
       ]);
     });
   });
@@ -226,5 +231,20 @@ describeRules('Ki3 POS Firestore authorization', () => {
   it('grants platform-wide reads only to an admin custom claim', async () => {
     const db = environment.authenticatedContext('admin-user', { admin: true }).firestore();
     await assertSucceeds(getDoc(doc(db, 'shops/shop-b/products/product-b')));
+  });
+
+  it('keeps financial history immutable for tenants but permits an admin tenant purge', async () => {
+    const paths = [
+      'shops/shop-a/dueCollections/due-a',
+      'shops/shop-a/paymentTransactions/payment-a',
+      'shops/shop-a/accountingTransactions/accounting-a',
+      'shops/shop-a/stockMovements/movement-history',
+      'shops/shop-a/purchaseReturns/purchase-return-history',
+      'shops/shop-a/salesReturns/sales-return-history',
+    ];
+    const ownerDb = environment.authenticatedContext('owner-a').firestore();
+    for (const path of paths) await assertFails(deleteDoc(doc(ownerDb, path)));
+    const adminDb = environment.authenticatedContext('admin-user', { admin: true }).firestore();
+    for (const path of paths) await assertSucceeds(deleteDoc(doc(adminDb, path)));
   });
 });
