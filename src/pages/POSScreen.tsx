@@ -4,11 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import { increment } from 'firebase/firestore';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Badge, Button, DataState, Input } from '@/components/ui';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useAuth } from '@/lib/auth';
 import { completeSale, createRecord, deleteRecord, setRecord, updateRecord, useLiveCollection, useLiveCollectionWhere, useLiveDocument } from '@/lib/firestore';
 import { calculateTotals } from '@/lib/pos';
 import { createIdempotencyKey, parseOfflineSales } from '@/lib/checkout';
 import { isProductAvailableForBranch } from '@/lib/productAvailability';
+import { translate, useLanguage } from '@/lib/language';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { Branch, Customer, Employee, HeldOrder, Order, OrderChannel, PaymentAccount, PaymentAllocation, PaymentKind, Product, Shift, Shop, ShopSettings } from '@/types';
 import { useConfirm, useToast } from '@/lib/feedback';
@@ -22,6 +24,8 @@ const directPayments: Array<{ kind: 'CASH' | 'CARD' | 'CREDIT'; label: string }>
 
 export default function POSScreen() {
   const { user, logout } = useAuth();
+  const { language } = useLanguage();
+  const t = (label: string) => translate(label, language);
   const confirm = useConfirm(); const toast = useToast();
   const navigate = useNavigate();
   const shopId = user?.shopId || '';
@@ -245,8 +249,8 @@ export default function POSScreen() {
 
   return <div className="pos-shell h-screen overflow-hidden text-slate-900">
     <header className="pos-header flex h-16 items-center justify-between border-b bg-white px-3 shadow-sm md:h-20 md:px-6">
-      <div className="flex items-center gap-3"><Button variant="ghost" className="px-2" onClick={() => user?.role === 'OWNER' ? navigate('/owner') : logout()}><ArrowLeft className="h-5 w-5 md:mr-2"/><span className="hidden md:inline">Back</span></Button><div><h1 className="font-black md:text-xl">{shop?.name || 'KI3 POS'}</h1><p className="text-xs font-bold text-blue-600">{branchName} · {navigator.onLine ? 'Online' : 'Offline queue'}</p></div></div>
-      <div className="flex items-center gap-2">{employeeIsScoped && user?.permissions?.view && <Button variant="outline" className="hidden h-10 border-blue-200 px-3 text-blue-700 sm:inline-flex" onClick={() => navigate('/owner/orders')}><ShoppingBag className="h-4 w-4 md:mr-2"/><span className="hidden md:inline">Orders</span></Button>}{employeeIsScoped && user?.permissions?.recordExpenses && <Button variant="outline" className="h-10 border-orange-200 px-3 text-orange-700" onClick={() => navigate('/expenses')}><ReceiptText className="h-4 w-4 md:mr-2"/><span className="hidden md:inline">Expense</span></Button>}<Button variant="outline" className="h-10 border-purple-200 px-3 text-purple-700" onClick={() => setShowHeld(true)}><Pause className="h-4 w-4 md:mr-2"/><span className="hidden md:inline">Held</span><Badge className="ml-1 bg-purple-100 text-purple-700">{heldOrders.length}</Badge></Button>{user?.role === 'OWNER' && <select disabled={Boolean(activeShift)} value={branchId} onChange={event => { setOwnerBranchId(event.target.value); localStorage.setItem('ki3-owner-branch', event.target.value); }} className="h-10 max-w-32 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold">{branches.filter(branch => branch.active !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>}<Button variant={activeShift ? 'danger' : 'primary'} className={cn('h-10 px-3', !activeShift && 'bg-emerald-600 hover:bg-emerald-700')} onClick={toggleShift}>{activeShift ? 'Close Shift' : 'Open Shift'}</Button></div>
+      <div className="flex items-center gap-3"><Button variant="ghost" className="px-2" onClick={() => user?.role === 'OWNER' ? navigate('/owner') : logout()}><ArrowLeft className="h-5 w-5 md:mr-2"/><span className="hidden md:inline">{t('Back')}</span></Button><div><h1 className="font-black md:text-xl">{shop?.name || 'KI3 POS'}</h1><p className="text-xs font-bold text-blue-600">{branchName} · {navigator.onLine ? t('Online') : t('Offline queue')}</p></div></div>
+      <div className="flex items-center gap-2"><LanguageSwitcher compact />{employeeIsScoped && user?.permissions?.view && <Button variant="outline" className="hidden h-10 border-blue-200 px-3 text-blue-700 sm:inline-flex" onClick={() => navigate('/owner/orders')}><ShoppingBag className="h-4 w-4 md:mr-2"/><span className="hidden md:inline">{t('Orders')}</span></Button>}{employeeIsScoped && user?.permissions?.recordExpenses && <Button variant="outline" className="h-10 border-orange-200 px-3 text-orange-700" onClick={() => navigate('/expenses')}><ReceiptText className="h-4 w-4 md:mr-2"/><span className="hidden md:inline">{t('Expense')}</span></Button>}<Button variant="outline" className="h-10 border-purple-200 px-3 text-purple-700" onClick={() => setShowHeld(true)}><Pause className="h-4 w-4 md:mr-2"/><span className="hidden md:inline">{t('Held')}</span><Badge className="ml-1 bg-purple-100 text-purple-700">{heldOrders.length}</Badge></Button>{user?.role === 'OWNER' && <select disabled={Boolean(activeShift)} value={branchId} onChange={event => { setOwnerBranchId(event.target.value); localStorage.setItem('ki3-owner-branch', event.target.value); }} className="h-10 max-w-32 rounded-xl border border-slate-200 bg-white px-2 text-xs font-bold">{branches.filter(branch => branch.active !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>}<Button variant={activeShift ? 'danger' : 'primary'} className={cn('h-10 px-3', !activeShift && 'bg-emerald-600 hover:bg-emerald-700')} onClick={toggleShift}>{activeShift ? t('Close Shift') : t('Open Shift')}</Button></div>
     </header>
 
     <main className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden md:h-[calc(100vh-5rem)] lg:flex-row">
