@@ -9,18 +9,13 @@ import { db } from '@/lib/firebase';
 import { useLiveCollection } from '@/lib/firestore';
 import type { AuditLog, PlatformSettings } from '@/types';
 import { prepareLogoImage } from '@/lib/imageUpload';
+import { languageOptions } from '@/lib/language';
 
 type Settings = PlatformSettings & { paymentMethods: Record<string, boolean>; taxInclusive: boolean; maintenanceMessage: string };
 const defaults: Settings = { systemName:'KI3 POS', supportEmail:'support@ki3.com', logo:'', favicon:'', currency:'MMK', language:'en', timezone:'Asia/Yangon', defaultTaxRate:0, taxInclusive:false, trialPeriodDays:14, gracePeriodDays:0, maintenanceMode:false, maintenanceMessage:'Scheduled maintenance is in progress.', dataRetentionDays:2555, plans:[{id:'basic',name:'Basic',monthlyFee:30000,active:true,trialDays:14},{id:'premium',name:'Premium',monthlyFee:50000,active:true,trialDays:14}], featureFlags:{photobooth:true,inventory:true,expenses:true,offlineMode:true}, notifications:{emailEnabled:false,smsEnabled:false,renewalDays:7}, security:{sessionTimeoutMinutes:30,requireStrongPasswords:true,auditRetentionDays:2555}, backup:{enabled:true,frequency:'DAILY',retentionDays:30}, paymentMethods:{CASH:true,KPAY:true,WAVE:true,BANK:true} };
 const tabs = [
   ['General', Globe], ['Subscriptions', CreditCard], ['Notifications', Bell], ['Security & Roles', Shield], ['Features & Operations', SlidersHorizontal], ['Backups & Health', Database],
 ] as const;
-const languageOptions = [
-  { value: 'en', label: 'English' },
-  { value: 'my', label: 'Myanmar' },
-  { value: 'ko', label: 'Korean' },
-];
-
 export default function AdminSettings(){
   const { firebaseUser, changeAdminCredentials } = useAuth();
   const { data: auditLogs } = useLiveCollection<AuditLog>('systemAuditLogs','createdAt');
