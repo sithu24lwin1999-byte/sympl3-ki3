@@ -21,7 +21,14 @@ Install these before building APKs:
 - Android Studio
 - Android SDK, Android Platform Tools and Android Build Tools
 
-This machine did not have Java installed when the Android wrapper was added, so APK build could not be completed here yet.
+On this Mac, Homebrew Java and Android command line tools are expected at:
+
+```text
+/opt/homebrew/opt/openjdk@21
+/opt/homebrew/share/android-commandlinetools
+```
+
+If Android Studio is not installed, command line builds still work when the Android SDK packages are installed with `sdkmanager`.
 
 ## Build commands
 
@@ -36,6 +43,8 @@ Debug APK output:
 ```text
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+The debug APK is only for testing. For public customer downloads, build a signed release APK.
 
 For public sharing, use a signed release APK from Android Studio or a secure release signing setup. Never commit keystores, passwords or signing configuration containing secrets.
 
