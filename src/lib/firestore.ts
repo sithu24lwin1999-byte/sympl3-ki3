@@ -5,6 +5,7 @@ import type { AccountingTransaction, DueCollection, Order, OrderStatus, PaymentA
 import { stockStatus } from './pos';
 import { firestoreSafeId, normalizeSaleOrder, saleLedgerRecords } from './checkout';
 import { dataErrorMessage } from './security';
+import { isProductAvailableForBranch } from './productAvailability';
 
 export function useLiveCollection<T extends { id: string }>(path: string | null, sortField?: string) {
   const [data, setData] = useState<T[]>([]);
@@ -124,16 +125,21 @@ export async function completeSale(shopId: string, order: Omit<Order, 'id'>) {
     }
     const productRefs = normalized.items.map(item => doc(db, `shops/${shopId}/products/${item.productId}`));
     const settingsRef = doc(db, `shops/${shopId}/settings/general`);
-    const [settingsSnapshot, ...productSnapshots] = await Promise.all([
+    const shopRef = doc(db, `shops/${shopId}`);
+    const [shopSnapshot, settingsSnapshot, ...productSnapshots] = await Promise.all([
+      transaction.get(shopRef),
       transaction.get(settingsRef),
       ...productRefs.map(reference => transaction.get(reference)),
     ]);
     const allowNegativeStock = settingsSnapshot.exists() && settingsSnapshot.data().allowNegativeStock === true;
+    const businessType = shopSnapshot.exists() ? shopSnapshot.data().businessType : undefined;
+    const orderBranchId = normalized.branchId || 'main';
     for (const [index, item] of normalized.items.entries()) {
       const productRef = productRefs[index];
       const snapshot = productSnapshots[index];
       if (!snapshot.exists()) throw new Error(`${item.name} is no longer available.`);
       const product = snapshot.data() as Product;
+      if (!isProductAvailableForBranch(product, orderBranchId, businessType)) throw new Error(`${item.name} is not available at this branch.`);
       if (product.itemType === 'SERVICE' || product.trackStock === false) continue;
       if (!allowNegativeStock && product.stock < item.quantity) throw new Error(`Not enough stock for ${item.name}. Available: ${product.stock}.`);
       const stock = product.stock - item.quantity;

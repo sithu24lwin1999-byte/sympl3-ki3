@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { completeSale, createRecord, deleteRecord, setRecord, updateRecord, useLiveCollection, useLiveCollectionWhere, useLiveDocument } from '@/lib/firestore';
 import { calculateTotals } from '@/lib/pos';
 import { createIdempotencyKey, parseOfflineSales } from '@/lib/checkout';
+import { isProductAvailableForBranch } from '@/lib/productAvailability';
 import { cn, formatCurrency } from '@/lib/utils';
 import type { Branch, Customer, Employee, HeldOrder, Order, OrderChannel, PaymentAccount, PaymentAllocation, PaymentKind, Product, Shift, Shop, ShopSettings } from '@/types';
 import { useConfirm, useToast } from '@/lib/feedback';
@@ -74,7 +75,8 @@ export default function POSScreen() {
 
   const allowNegativeStock = settings?.allowNegativeStock === true;
   const activeAccounts = paymentAccounts.filter(account => account.active && !['CREDIT', 'SPLIT'].includes(account.kind));
-  const sellableProducts = products.filter(product => product.active !== false && (orderType === 'ONLINE' ? product.availableOnline !== false : product.availableInStore !== false));
+  const businessType = shop?.businessType || settings?.businessType;
+  const sellableProducts = products.filter(product => product.active !== false && isProductAvailableForBranch(product, branchId, businessType) && (orderType === 'ONLINE' ? product.availableOnline !== false : product.availableInStore !== false));
   const categories = useMemo(() => ['All', ...Array.from(new Set(sellableProducts.map(product => product.category)))], [sellableProducts]);
   const filteredProducts = sellableProducts.filter(product => (activeCategory === 'All' || product.category === activeCategory) && `${product.name} ${product.sku} ${product.barcode || ''}`.toLowerCase().includes(search.toLowerCase()));
   const selectedPayment = activeAccounts.find(account => account.id === paymentAccountId);
@@ -145,7 +147,7 @@ export default function POSScreen() {
   };
 
   const resumeOrder = (held: HeldOrder) => {
-    const restored = held.items.flatMap(item => { const product = products.find(candidate => candidate.id === item.productId); return product ? [{ product, quantity: item.quantity }] : []; });
+    const restored = held.items.flatMap(item => { const product = products.find(candidate => candidate.id === item.productId && isProductAvailableForBranch(candidate, held.branchId || branchId, businessType)); return product ? [{ product, quantity: item.quantity }] : []; });
     if (!restored.length) { setCheckoutError('The products in this held order are no longer available.'); return; }
     setCart(restored); setOrderType(held.type); setCustomer(held.customer); setCustomerPhone(held.customerPhone || ''); setDiscountPercent(held.discountPercent); setDeliveryCharge(held.deliveryCharge); setNotes(held.notes || ''); setResumedHeldId(held.id); setShowHeld(false); setCheckoutError(restored.length < held.items.length ? 'Some unavailable products were removed from the held order.' : '');
   };
