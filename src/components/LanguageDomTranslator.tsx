@@ -15,7 +15,8 @@ function translateTextNode(node: Text, language: AppLanguage) {
   const trailing = node.nodeValue.match(/\s*$/)?.[0] || '';
   const raw = node.nodeValue.trim();
   const previous = originalText.get(node);
-  const source = previous || raw;
+  const previousTarget = previous ? translate(previous, language) : '';
+  const source = previous && (raw === previous || raw === previousTarget) ? previous : raw;
   const target = language === 'en' ? source : translate(source, language);
   originalText.set(node, source);
   if (raw !== target) node.nodeValue = `${leading}${target}${trailing}`;
@@ -57,6 +58,7 @@ export function LanguageDomTranslator() {
     const apply = () => scan(document.body, language);
     const observer = new MutationObserver(mutations => {
       for (const mutation of mutations) {
+        if (mutation.type === 'characterData' && mutation.target instanceof Text) translateTextNode(mutation.target, language);
         mutation.addedNodes.forEach(node => {
           if (node instanceof Text) translateTextNode(node, language);
           else if (node instanceof Element) scan(node, language);
@@ -65,7 +67,7 @@ export function LanguageDomTranslator() {
       }
     });
     apply();
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: [...translatableAttributes] });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: [...translatableAttributes] });
     return () => observer.disconnect();
   }, [language]);
 
