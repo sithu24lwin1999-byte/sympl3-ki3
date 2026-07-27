@@ -114,4 +114,4 @@ Recommended non-store distribution:
 - iPhone/iPad: open the download page in Safari, tap Share, then choose Add to Home Screen. Apple does not support simple public direct `.ipa` installation like Android APK.
 - Desktop: install from Chrome or Edge using the browser install button.
 
-To build an Android APK in the future, install Java JDK plus Android Studio/Android SDK, add a Capacitor Android wrapper, build the signed APK and upload only the final APK artifact to the chosen download host. Do not commit signing keys or passwords.
+To build an Android APK in the future, install Java JDK plus Android Studio/Android SDK, build the signed APK and upload only the final APK artifact to the chosen download host. Do not commit signing keys or passwords. See [`docs/ANDROID_APK_DISTRIBUTION.md`](docs/ANDROID_APK_DISTRIBUTION.md).
