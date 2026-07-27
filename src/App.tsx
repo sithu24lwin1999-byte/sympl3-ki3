@@ -1,6 +1,7 @@
 import React, { ErrorInfo, lazy, ReactNode, Suspense } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
+import { LanguageDomTranslator } from '@/components/LanguageDomTranslator';
 import AccessDenied from '@/pages/AccessDenied';
 import type { AppUser, EmployeePermissions, Role } from '@/types';
 
@@ -57,11 +58,12 @@ class AppErrorBoundary extends React.Component<{ children: ReactNode }, { failed
 
 export default function App() {
   const { user, loading, accessIssue, logout } = useAuth();
-  if (loading) return <LoadingScreen />;
-  if (accessIssue) return <AccessDenied message={accessIssue.message} onExit={logout} />;
+  if (loading) return <><LanguageDomTranslator /><LoadingScreen /></>;
+  if (accessIssue) return <><LanguageDomTranslator /><AccessDenied message={accessIssue.message} onExit={logout} /></>;
   return (
     <AppErrorBoundary>
       <HashRouter>
+        <LanguageDomTranslator />
         <Suspense fallback={<LoadingScreen />}>
           <Routes>
             <Route path="/" element={user ? <Navigate to={homeFor(user)} replace /> : <Login />} />
