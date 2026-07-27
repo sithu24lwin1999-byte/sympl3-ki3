@@ -156,6 +156,7 @@ export interface Product {
   shopId: string;
   itemType?: 'PRODUCT' | 'SERVICE';
   trackStock?: boolean;
+  availableBranchIds?: string[];
 }
 
 export interface PaymentAccount {
