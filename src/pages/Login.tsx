@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Button, Card, Input } from '@/components/ui';
-import { Store, Loader2 } from 'lucide-react';
+import { Download, Store, Loader2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 export default function Login() {
@@ -33,6 +34,10 @@ export default function Login() {
           {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
           <Button type="submit" disabled={busy} className="w-full h-13">{busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Sign In</Button>
           <button type="button" disabled={busy} onClick={() => run(async () => { await resetPassword(email); setMessage('Password reset link sent. Please check your email.'); })} className="w-full text-sm font-bold text-[#5f725a] hover:text-[#465741]">Forgot password?</button>
+          <Link to="/download" className="flex w-full items-center justify-center gap-2 text-sm font-bold text-slate-500 hover:text-[#465741]">
+            <Download className="h-4 w-4" />
+            Download app
+          </Link>
         </form>
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-700">{message}</p>}
       </Card>
