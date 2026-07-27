@@ -21,6 +21,7 @@ const OwnerReports = lazy(() => import('./pages/OwnerReports'));
 const OwnerCoreModules = lazy(() => import('./pages/OwnerCoreModules'));
 const EmployeeExpenses = lazy(() => import('./pages/EmployeeExpenses'));
 const POSScreen = lazy(() => import('./pages/POSScreen'));
+const DownloadApp = lazy(() => import('./pages/DownloadApp'));
 
 function homeFor(user: AppUser) {
   if (user.role === 'ADMIN') return '/admin';
@@ -67,6 +68,7 @@ export default function App() {
         <Suspense fallback={<LoadingScreen />}>
           <Routes>
             <Route path="/" element={user ? <Navigate to={homeFor(user)} replace /> : <Login />} />
+            <Route path="/download" element={<DownloadApp />} />
             <Route path="/unauthorized" element={<AccessDenied />} />
             <Route path="/admin" element={<Protected roles={['ADMIN']}><AdminDashboard /></Protected>} />
             <Route path="/admin/shops" element={<Protected roles={['ADMIN']}><AdminShops /></Protected>} />

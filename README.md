@@ -101,3 +101,17 @@ Pushes to `main` run `.github/workflows/deploy.yml` and publish the PWA to GitHu
 https://sithu24lwin1999-byte.github.io/sympl3-ki3/
 
 For a custom domain, add the domain in GitHub Pages settings and create the required DNS records with the domain provider.
+
+## App download link without app stores
+
+The public install page is available at:
+
+https://sithu24lwin1999-byte.github.io/sympl3-ki3/#/download
+
+Recommended non-store distribution:
+
+- Android: open the download page in Chrome and install the PWA. A direct APK download can be added later after building a real APK.
+- iPhone/iPad: open the download page in Safari, tap Share, then choose Add to Home Screen. Apple does not support simple public direct `.ipa` installation like Android APK.
+- Desktop: install from Chrome or Edge using the browser install button.
+
+To build an Android APK in the future, install Java JDK plus Android Studio/Android SDK, add a Capacitor Android wrapper, build the signed APK and upload only the final APK artifact to the chosen download host. Do not commit signing keys or passwords.
