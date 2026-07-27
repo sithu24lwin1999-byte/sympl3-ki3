@@ -43,10 +43,24 @@ function useInstallPrompt() {
 
 export default function DownloadApp() {
   const { canInstall, installed, install } = useInstallPrompt();
+  const [apkAvailable, setApkAvailable] = useState(false);
+  const apkUrl = `${import.meta.env.BASE_URL}downloads/ki3-pos.apk`;
   const appUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
     return `${window.location.origin}${window.location.pathname}#/`;
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(apkUrl, { method: 'HEAD', cache: 'no-store' })
+      .then(response => {
+        if (!cancelled) setApkAvailable(response.ok);
+      })
+      .catch(() => {
+        if (!cancelled) setApkAvailable(false);
+      });
+    return () => { cancelled = true; };
+  }, [apkUrl]);
 
   return (
     <div className="min-h-screen bg-[#f5f4ef] px-5 py-6 text-slate-900 sm:px-8">
@@ -76,6 +90,14 @@ export default function DownloadApp() {
               <Download className="h-4 w-4" />
               {installed ? 'Installed' : canInstall ? 'Install KI3 POS' : 'Open in Chrome to Install'}
             </Button>
+            <a
+              href={apkAvailable ? apkUrl : undefined}
+              aria-disabled={!apkAvailable}
+              className={`inline-flex h-13 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors ${apkAvailable ? 'bg-[#667860] text-white hover:bg-[#52634d]' : 'pointer-events-none bg-slate-200 text-slate-400'}`}
+            >
+              <Download className="h-4 w-4" />
+              Download Android APK
+            </a>
             <a href={appUrl} className="inline-flex h-13 items-center justify-center gap-2 rounded-xl border border-[#ddd9ce] bg-white px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-[#f6f5f0]">
               <ExternalLink className="h-4 w-4" />
               Open Web App
@@ -97,6 +119,9 @@ export default function DownloadApp() {
                 <h2 className="text-lg font-black">Android</h2>
                 <p className="mt-1 text-sm font-medium leading-6 text-slate-500">
                   Open this page in Chrome and press Install KI3 POS. When APK is ready, an APK download button can be added here.
+                </p>
+                <p className="mt-3 text-xs font-bold text-slate-400">
+                  APK status: {apkAvailable ? 'Ready to download' : 'Not uploaded yet'}
                 </p>
               </div>
             </div>
