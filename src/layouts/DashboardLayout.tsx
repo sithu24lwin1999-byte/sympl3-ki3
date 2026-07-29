@@ -71,11 +71,11 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   };
 
   return (
-    <div className="flex min-h-screen overflow-hidden bg-[#f5f4ef] font-sans text-slate-900">
+    <div className="page-shell flex min-h-screen overflow-hidden bg-[#f5f4ef] font-sans text-slate-900">
       {/* Sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-[#e5e1d7] bg-white p-5 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-[#e5e1d7] bg-white/95 p-5 shadow-[10px_0_34px_rgb(41_37_28_/_4%)] lg:flex">
         <div className="mb-9 flex items-center gap-3 px-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#71806a]">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#71806a] shadow-lg shadow-[#71806a]/20">
             <Store className="w-5 h-5 text-white" />
           </div>
           <span className="text-xl font-black tracking-tight text-slate-900">KI3 POS</span>
@@ -92,7 +92,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                 className={cn(
                   "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors",
                   active
-                    ? "bg-[#eef1e9] text-[#506149]"
+                    ? "bg-[#eef1e9] text-[#506149] shadow-sm"
                     : "text-slate-500 hover:bg-[#f7f6f2] hover:text-slate-900"
                 )}
               >
@@ -104,7 +104,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
         </nav>
 
         {effectiveRole === 'OWNER' && (
-          <div className="mt-auto mb-4 rounded-2xl border border-[#e4e1d7] bg-[#faf9f5] p-4">
+          <div className="mt-auto mb-4 rounded-3xl border border-[#e4e1d7] bg-[#faf9f5] p-4 shadow-sm">
             <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">{t('Subscription')}</p>
             <p className="mb-2 text-xs font-bold text-slate-800">{shop?.plan || t('Loading plan')}</p>
             <div className="mb-2 h-1 w-full overflow-hidden rounded-full bg-[#e4e1d7]">
@@ -124,7 +124,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-20 flex min-h-20 shrink-0 items-center justify-between border-b border-[#e5e1d7] bg-white px-4 py-3 md:px-8">
+        <header className="sticky top-0 z-20 flex min-h-20 shrink-0 items-center justify-between border-b border-[#e5e1d7] bg-white/95 px-4 py-3 shadow-sm md:px-8">
           <div className="hidden lg:block">
             <h2 className="text-lg font-bold">{effectiveRole === 'ADMIN' ? t('KI3 POS Administration') : shop?.name || t('My Shop')}</h2>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{clock.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })} • {clock.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
@@ -133,7 +133,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
           <div className="flex items-center gap-3 lg:gap-6 lg:ml-auto">
             {effectiveRole === 'OWNER' && currentSubscription && <span className={cn('hidden sm:inline-flex rounded-full px-3 py-1 text-[10px] font-bold', currentSubscription === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : currentSubscription === 'TRIAL' || currentSubscription === 'EXPIRING_SOON' ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700')}>{currentSubscription.replace('_', ' ')}</span>}
             <LanguageSwitcher compact className="hidden sm:flex" />
-            <form onSubmit={handleSearch} className="flex w-32 items-center gap-2 rounded-full border border-[#e7e3da] bg-[#f8f7f3] px-3 py-2 sm:w-48 md:w-64 md:gap-3 md:px-4">
+            <form onSubmit={handleSearch} className="flex w-32 items-center gap-2 rounded-full border border-[#e7e3da] bg-[#f8f7f3] px-3 py-2 shadow-inner sm:w-48 md:w-64 md:gap-3 md:px-4">
               <Search className="w-4 h-4 text-slate-400" />
               <input 
                 type="text" 
@@ -177,8 +177,8 @@ export default function DashboardLayout({ children, role }: { children: React.Re
           <LanguageSwitcher compact className="shrink-0 rounded-xl" />
           <button onClick={logout} className="shrink-0 px-3 py-2 text-xs font-bold text-red-500">{t('Sign Out')}</button>
         </nav>
-        <div className="flex-1 overflow-y-auto bg-[#f5f4ef] p-4 md:p-8">
-          <div className="max-w-7xl mx-auto h-full flex flex-col">
+        <div className="relative flex-1 overflow-y-auto bg-transparent p-4 md:p-8">
+          <div className="relative z-10 max-w-7xl mx-auto h-full flex flex-col">
             {children}
           </div>
         </div>

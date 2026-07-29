@@ -9,18 +9,18 @@ export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTM
 export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' }>(
   ({ className, variant = 'primary', type = 'button', ...props }, ref) => {
     const variants = {
-      primary: 'bg-[#667860] text-white hover:bg-[#52634d]',
-      secondary: 'bg-[#efeee8] text-slate-900 hover:bg-[#e5e3da]',
-      outline: 'border border-[#ddd9ce] bg-white hover:bg-[#f6f5f0]',
+      primary: 'bg-[#667860] text-white shadow-sm shadow-[#667860]/20 hover:bg-[#52634d]',
+      secondary: 'bg-[#efeee8] text-slate-900 shadow-sm hover:bg-[#e5e3da]',
+      outline: 'border border-[#ddd9ce] bg-white shadow-sm hover:bg-[#f6f5f0]',
       ghost: 'hover:bg-[#efeee8] text-slate-600',
-      danger: 'bg-red-600 text-white hover:bg-red-700',
+      danger: 'bg-red-600 text-white shadow-sm shadow-red-600/20 hover:bg-red-700',
     };
     return (
       <button
         ref={ref}
         type={type}
         className={cn(
-          "min-h-11 inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#71806a] focus-visible:ring-offset-2",
+          "min-h-11 inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#71806a] focus-visible:ring-offset-2",
           variants[variant],
           className
         )}
@@ -36,7 +36,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        "flex h-12 w-full rounded-xl border border-[#ddd9ce] bg-white px-4 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#71806a] disabled:cursor-not-allowed disabled:opacity-50 transition-colors",
+        "flex h-12 w-full rounded-xl border border-[#ddd9ce] bg-white px-4 py-2 text-sm shadow-sm shadow-slate-900/[0.02] ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#71806a] disabled:cursor-not-allowed disabled:opacity-50 transition-all",
         className
       )}
       {...props}
