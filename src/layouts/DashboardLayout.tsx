@@ -59,6 +59,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => { const timer = window.setInterval(() => setClock(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const currentSubscription = shop ? subscriptionState(shop) : null;
+  const profilePhoto = user?.role === 'OWNER' ? shop?.ownerPhoto || user?.photo : user?.photo;
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -165,7 +166,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
                   <p className="text-[11px] text-slate-400">{user?.role}</p>
                 </div>
                 <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-[#e8eee5] font-bold text-[#596b54] ring-1 ring-[#ddd9ce]">
-                  {user?.name?.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'KI'}
+                  {profilePhoto ? <img src={profilePhoto} alt={`${user?.name || 'User'} profile`} className="h-full w-full object-cover" /> : user?.name?.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'KI'}
                 </div>
               </div>
             </div>
