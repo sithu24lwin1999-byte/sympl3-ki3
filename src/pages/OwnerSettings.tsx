@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { createRecord, deleteRecord, setRecord, useLiveCollection, useLiveDocumentState } from '@/lib/firestore';
 import type { BusinessType, PaymentAccount, PaymentKind, Shop, ShopSettings } from '@/types';
 import { useConfirm, useToast } from '@/lib/feedback';
+import { prepareProfileImage } from '@/lib/imageUpload';
 
 const defaults: ShopSettings = {
   businessType: 'RETAIL', taxRate: 5, serviceCharge: 0, invoicePrefix: 'KI3', loyaltyPointsPer1000: 10, allowNegativeStock: false,
@@ -24,9 +25,10 @@ export default function OwnerSettings() {
   const { data: accounts, loading: accountsLoading, error: accountsError } = useLiveCollection<PaymentAccount>(shopId ? `shops/${shopId}/paymentAccounts` : null, 'createdAt');
   const [activeTab, setActiveTab] = useState<'Profile' | 'Receipt' | 'Payments'>('Profile');
   const [settings, setSettings] = useState<ShopSettings>(defaults);
-  const [profile, setProfile] = useState({ name: '', phone: '', address: '' });
+  const [profile, setProfile] = useState({ name: '', phone: '', address: '', ownerPhoto: '' });
   const [account, setAccount] = useState({ kind: 'KPAY' as Exclude<PaymentKind, 'CASH'>, label: '', accountName: '', accountNumber: '', bankName: '', qrCode: '' });
   const [qrError, setQrError] = useState('');
+  const [photoError, setPhotoError] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -34,7 +36,7 @@ export default function OwnerSettings() {
   const dataError = shopError || settingsError || accountsError;
 
   useEffect(() => { if (savedSettings) setSettings({ ...defaults, ...savedSettings, receipt: { ...defaults.receipt!, ...savedSettings.receipt }, printer: { ...defaults.printer!, ...savedSettings.printer } }); }, [savedSettings]);
-  useEffect(() => { if (shop) setProfile({ name: shop.name || '', phone: shop.phone || '', address: shop.address || '' }); }, [shop]);
+  useEffect(() => { if (shop) setProfile({ name: shop.name || '', phone: shop.phone || '', address: shop.address || '', ownerPhoto: shop.ownerPhoto || '' }); }, [shop]);
 
   const save = async () => {
     if (!shopId) return;
@@ -77,6 +79,15 @@ export default function OwnerSettings() {
     catch (issue) { setQrError(issue instanceof Error ? issue.message : 'Unable to read QR image.'); }
   };
 
+  const chooseOwnerPhoto = async (file?: File) => {
+    if (!file) return;
+    setPhotoError('');
+    try {
+      const ownerPhoto = await prepareProfileImage(file);
+      setProfile(current => ({ ...current, ownerPhoto }));
+    } catch (issue) { setPhotoError(issue instanceof Error ? issue.message : 'Unable to save owner photo.'); }
+  };
+
   const updateAccountQr = async (item: PaymentAccount, file?: File) => {
     if (!file || !shopId) return;
     setQrError('');
@@ -108,6 +119,20 @@ export default function OwnerSettings() {
           <div><label className="text-sm font-bold">Business type</label><select value={settings.businessType} onChange={e => setSettings({ ...settings, businessType: e.target.value as BusinessType })} className="mt-2 flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4">
             <option value="RESTAURANT">Restaurant / Café</option><option value="RETAIL">General Retail</option><option value="FASHION">Fashion & Clothing</option><option value="BAKERY">Bakery</option><option value="PHOTOBOOTH">Photobooth & Costume Rental</option><option value="SERVICE">Customer Service / Service Business</option><option value="OTHER">Other</option>
           </select></div>
+          <div>
+            <span className="text-sm font-bold">Owner photo</span>
+            <div className="mt-2 flex flex-wrap items-center gap-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              {profile.ownerPhoto ? <img src={profile.ownerPhoto} alt="Owner profile preview" className="h-24 w-24 rounded-full border bg-white object-cover" /> : <div className="grid h-24 w-24 place-items-center rounded-full border bg-white text-slate-300"><ImagePlus className="h-8 w-8" /></div>}
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"><ImagePlus className="mr-2 h-4 w-4" />{profile.ownerPhoto ? 'Change Owner Photo' : 'Upload Owner Photo'}<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={event => { void chooseOwnerPhoto(event.target.files?.[0]); event.currentTarget.value = ''; }} /></label>
+                  {profile.ownerPhoto && <button type="button" onClick={() => setProfile({ ...profile, ownerPhoto: '' })} className="inline-flex min-h-11 items-center rounded-xl border-2 border-slate-200 px-4 text-sm font-semibold text-red-600 hover:bg-red-50"><Trash2 className="mr-2 h-4 w-4" />Remove</button>}
+                </div>
+                <p className="text-xs text-slate-500">PNG, JPG or WebP · maximum file size 3 MB.</p>
+                {photoError && <p role="alert" className="text-sm font-semibold text-red-600">{photoError}</p>}
+              </div>
+            </div>
+          </div>
           <div><label className="text-sm font-bold">Shop name</label><Input className="mt-2" value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} /></div>
           <div className="grid md:grid-cols-2 gap-4"><div><label className="text-sm font-bold">Phone</label><Input className="mt-2" value={profile.phone} onChange={e => setProfile({ ...profile, phone: e.target.value })} /></div><div><label className="text-sm font-bold">Owner email</label><Input className="mt-2" value={shop?.ownerEmail || ''} disabled /></div></div>
           <div><label className="text-sm font-bold">Address</label><Input className="mt-2" value={profile.address} onChange={e => setProfile({ ...profile, address: e.target.value })} /></div>

@@ -57,7 +57,7 @@ async function resolveUser(firebaseUser: FirebaseUser): Promise<AppUser> {
   }
   const snapshot = await getDoc(doc(db, 'users', firebaseUser.uid));
   if (!snapshot.exists()) throw new Error('This account has not been assigned to a shop yet.');
-  const data = snapshot.data() as { name: string; email: string; role: Role; shopId?: string; branchId?: string; branchName?: string; active?: boolean };
+  const data = snapshot.data() as { name: string; email: string; role: Role; shopId?: string; branchId?: string; branchName?: string; active?: boolean; photo?: string };
   if (data.active === false) throw new TenantAccessError({ code: 'UNAUTHORIZED', message: 'This account has been disabled by an administrator.' });
   if ((data.role !== 'OWNER' && data.role !== 'EMPLOYEE') || !data.shopId) throw new TenantAccessError({ code: 'UNAUTHORIZED', message: 'This account does not have a valid shop assignment.' });
   const shopSnapshot = await getDoc(doc(db, 'shops', data.shopId));
@@ -68,12 +68,14 @@ async function resolveUser(firebaseUser: FirebaseUser): Promise<AppUser> {
   if (!['TRIAL', 'ACTIVE', 'EXPIRING_SOON'].includes(shop.status)) throw new TenantAccessError({ code: 'UNAUTHORIZED', message: INACTIVE_SUBSCRIPTION_MESSAGE });
   if (data.role === 'OWNER' && shop.ownerId !== firebaseUser.uid) throw new TenantAccessError({ code: 'UNAUTHORIZED', message: 'The owner assignment for this account is invalid.' });
   let permissions: EmployeePermissions | undefined;
+  let photo = data.photo || (data.role === 'OWNER' ? shop.ownerPhoto : undefined);
   if (data.role === 'EMPLOYEE') {
     const employeeSnapshot = await getDoc(doc(db, `shops/${data.shopId}/employees/${firebaseUser.uid}`));
     if (!employeeSnapshot.exists() || employeeSnapshot.data().status === 'Inactive') throw new TenantAccessError({ code: 'UNAUTHORIZED', message: 'This employee account is inactive.' });
     permissions = normalizePermissions(employeeSnapshot.data().permissions || {});
+    photo = employeeSnapshot.data().photo || photo;
   }
-  return { id: firebaseUser.uid, name: data.name, email: data.email, role: data.role, shopId: data.shopId, branchId: data.branchId, branchName: data.branchName, permissions };
+  return { id: firebaseUser.uid, name: data.name, email: data.email, role: data.role, photo, shopId: data.shopId, branchId: data.branchId, branchName: data.branchName, permissions };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -119,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, () => endSession({ code: 'UNAUTHORIZED', message: 'Your account access could not be verified.' }));
     const stopEmployee = user.role === 'EMPLOYEE' ? onSnapshot(doc(db, `shops/${user.shopId}/employees/${firebaseUser.uid}`), snapshot => {
       if (!snapshot.exists() || snapshot.data().status === 'Inactive') endSession({ code: 'UNAUTHORIZED', message: 'This employee account is inactive.' });
-      else setUser(current => current ? { ...current, permissions: normalizePermissions(snapshot.data().permissions || {}) } : current);
+      else setUser(current => current ? { ...current, photo: snapshot.data().photo || current.photo, permissions: normalizePermissions(snapshot.data().permissions || {}) } : current);
     }, () => endSession({ code: 'UNAUTHORIZED', message: 'Employee permissions could not be verified.' })) : () => undefined;
     const stopShop = onSnapshot(doc(db, 'shops', user.shopId), snapshot => {
       if (!snapshot.exists()) endSession({ code: 'UNAUTHORIZED', message: 'The assigned shop no longer exists.' });
@@ -179,7 +181,7 @@ export function useAuth() {
   return value;
 }
 
-export async function createManagedUser(input: { email: string; password: string; name: string; role: Role; shopId: string; branchId?: string; branchName?: string; phone?: string; shift?: string; jobTitle?: string; permissions?: EmployeePermissions }) {
+export async function createManagedUser(input: { email: string; password: string; name: string; role: Role; shopId: string; branchId?: string; branchName?: string; phone?: string; shift?: string; jobTitle?: string; permissions?: EmployeePermissions; photo?: string }) {
   // Spark-plan compatible provisioning: creating the managed account in an
   // isolated secondary Auth app preserves the administrator's primary session.
   const secondary = initializeApp(firebaseConfig, `provision-${Date.now()}`);
@@ -190,10 +192,10 @@ export async function createManagedUser(input: { email: string; password: string
     const branchName = input.branchName || 'Main Branch';
     if (input.role === 'EMPLOYEE') await setDoc(doc(db, `shops/${input.shopId}/employees/${credential.user.uid}`), {
       name: input.name, email: input.email.trim().toLowerCase(), role: input.jobTitle || 'Cashier', phone: input.phone || '', shift: input.shift || 'Morning',
-      shopId: input.shopId, branchId, branchName, status: 'Active', permissions: input.permissions || defaultPermissions, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      shopId: input.shopId, branchId, branchName, photo: input.photo || '', status: 'Active', permissions: input.permissions || defaultPermissions, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     await setDoc(doc(db, 'users', credential.user.uid), {
-      name: input.name, email: input.email.trim().toLowerCase(), role: input.role, shopId: input.shopId, branchId, branchName, active: true, createdAt: new Date().toISOString(),
+      name: input.name, email: input.email.trim().toLowerCase(), role: input.role, photo: input.photo || '', shopId: input.shopId, branchId, branchName, active: true, createdAt: new Date().toISOString(),
     });
     await recordManagedAction(input.role === 'OWNER' ? 'systemAuditLogs' : `shops/${input.shopId}/auditLogs`, input.role === 'OWNER' ? 'OWNER_ACCOUNT_CREATED' : 'EMPLOYEE_CREATED', `${input.name} (${input.email.trim().toLowerCase()})`, input.role === 'EMPLOYEE' ? input.shopId : undefined).catch(() => undefined);
     return credential.user.uid;
@@ -203,15 +205,15 @@ export async function createManagedUser(input: { email: string; password: string
   } finally { await deleteApp(secondary); }
 }
 
-export async function updateManagedUser(input: { uid: string; name: string; email: string; active?: boolean; jobTitle?: string; branchId?: string; branchName?: string; phone?: string; shift?: string; permissions?: EmployeePermissions }) {
+export async function updateManagedUser(input: { uid: string; name: string; email: string; active?: boolean; jobTitle?: string; branchId?: string; branchName?: string; phone?: string; shift?: string; permissions?: EmployeePermissions; photo?: string }) {
   const userSnapshot = await getDoc(doc(db, 'users', input.uid));
   if (!userSnapshot.exists() || userSnapshot.data().role !== 'EMPLOYEE') throw new Error('Managed employee not found.');
   if (String(userSnapshot.data().email).toLowerCase() !== input.email.toLowerCase()) throw new Error('For security, an existing employee login email cannot be changed. Create a replacement employee account and disable this one.');
   const shopId = userSnapshot.data().shopId as string;
   await setDoc(doc(db, `shops/${shopId}/employees/${input.uid}`), {
     name: input.name, email: input.email.toLowerCase(), role: input.jobTitle || 'Cashier', phone: input.phone || '', shift: input.shift || 'Morning', status: input.active === false ? 'Inactive' : 'Active',
-    branchId: input.branchId || 'main', branchName: input.branchName || 'Main Branch', permissions: input.permissions || defaultPermissions, updatedAt: new Date().toISOString(),
+    branchId: input.branchId || 'main', branchName: input.branchName || 'Main Branch', ...(input.photo !== undefined ? { photo: input.photo } : {}), permissions: input.permissions || defaultPermissions, updatedAt: new Date().toISOString(),
   }, { merge: true });
-  await updateDoc(doc(db, 'users', input.uid), { name: input.name, email: input.email.toLowerCase(), branchId: input.branchId || 'main', branchName: input.branchName || 'Main Branch', active: input.active !== false, updatedAt: new Date().toISOString() });
+  await updateDoc(doc(db, 'users', input.uid), { name: input.name, email: input.email.toLowerCase(), ...(input.photo !== undefined ? { photo: input.photo } : {}), branchId: input.branchId || 'main', branchName: input.branchName || 'Main Branch', active: input.active !== false, updatedAt: new Date().toISOString() });
   await recordManagedAction(`shops/${shopId}/auditLogs`, input.active === false ? 'EMPLOYEE_DISABLED' : 'EMPLOYEE_UPDATED', `${input.name} (${input.uid})`, shopId).catch(() => undefined);
 }

@@ -11,6 +11,7 @@ export interface AppUser {
   name: string;
   email: string;
   role: Role;
+  photo?: string;
   shopId?: string;
   branchId?: string;
   branchName?: string;
@@ -23,6 +24,7 @@ export interface Shop {
   owner: string;
   ownerId: string;
   ownerEmail: string;
+  ownerPhoto?: string;
   phone: string;
   address?: string;
   plan: string;
@@ -115,6 +117,7 @@ export interface Employee {
   branchId?: string;
   branchName?: string;
   permissions?: EmployeePermissions;
+  photo?: string;
 }
 
 export interface Branch {

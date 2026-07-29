@@ -199,7 +199,7 @@ service cloud.firestore {
         && subscriptionActive(resource.data.shopId)
         && request.resource.data.role == resource.data.role
         && request.resource.data.shopId == resource.data.shopId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'branchId', 'branchName', 'active', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'photo', 'branchId', 'branchName', 'active', 'updatedAt'])
       );
       allow delete: if isAdmin();
     }
@@ -241,7 +241,7 @@ service cloud.firestore {
       allow update: if isAdmin() || (activeTenantMember(shopId)
         && ownsShop(shopId)
         && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'businessType', 'updatedAt']));
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'ownerPhoto', 'businessType', 'updatedAt']));
 
       match /products/{productId} {
         allow read: if hasShopAccess(shopId);
