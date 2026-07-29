@@ -191,7 +191,7 @@ export async function createManagedUser(input: { email: string; password: string
     const branchId = input.branchId || 'main';
     const branchName = input.branchName || 'Main Branch';
     if (input.role === 'EMPLOYEE') await setDoc(doc(db, `shops/${input.shopId}/employees/${credential.user.uid}`), {
-      name: input.name, email: input.email.trim().toLowerCase(), role: input.jobTitle || 'Cashier', phone: input.phone || '', shift: input.shift || 'Morning',
+      name: input.name, email: input.email.trim().toLowerCase(), role: input.jobTitle || 'Cashier', phone: input.phone || '', shift: input.shift || 'Day',
       shopId: input.shopId, branchId, branchName, photo: input.photo || '', status: 'Active', permissions: input.permissions || defaultPermissions, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     await setDoc(doc(db, 'users', credential.user.uid), {
@@ -211,7 +211,7 @@ export async function updateManagedUser(input: { uid: string; name: string; emai
   if (String(userSnapshot.data().email).toLowerCase() !== input.email.toLowerCase()) throw new Error('For security, an existing employee login email cannot be changed. Create a replacement employee account and disable this one.');
   const shopId = userSnapshot.data().shopId as string;
   await setDoc(doc(db, `shops/${shopId}/employees/${input.uid}`), {
-    name: input.name, email: input.email.toLowerCase(), role: input.jobTitle || 'Cashier', phone: input.phone || '', shift: input.shift || 'Morning', status: input.active === false ? 'Inactive' : 'Active',
+    name: input.name, email: input.email.toLowerCase(), role: input.jobTitle || 'Cashier', phone: input.phone || '', shift: input.shift || 'Day', status: input.active === false ? 'Inactive' : 'Active',
     branchId: input.branchId || 'main', branchName: input.branchName || 'Main Branch', ...(input.photo !== undefined ? { photo: input.photo } : {}), permissions: input.permissions || defaultPermissions, updatedAt: new Date().toISOString(),
   }, { merge: true });
   await updateDoc(doc(db, 'users', input.uid), { name: input.name, email: input.email.toLowerCase(), ...(input.photo !== undefined ? { photo: input.photo } : {}), branchId: input.branchId || 'main', branchName: input.branchName || 'Main Branch', active: input.active !== false, updatedAt: new Date().toISOString() });

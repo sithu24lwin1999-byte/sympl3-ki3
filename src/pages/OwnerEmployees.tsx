@@ -28,7 +28,7 @@ const emptyForm = (): EmployeeForm => ({
   email: '',
   password: '',
   phone: '',
-  shift: 'Morning',
+  shift: 'Day',
   branchId: 'main',
   photo: '',
   permissions: { ...rolePermissions.Cashier },
@@ -148,7 +148,7 @@ export default function OwnerEmployees() {
       email: employee.email,
       password: '',
       phone: employee.phone,
-      shift: employee.shift,
+      shift: employee.shift === 'Night' ? 'Night' : 'Day',
       branchId: employee.branchId || 'main',
       photo: employee.photo || '',
       permissions: normalizePermissions(employee.permissions),
@@ -195,7 +195,7 @@ export default function OwnerEmployees() {
 
     {showForm && <Modal title={editing ? 'Edit Employee' : 'Create Employee'} close={() => setShowForm(false)} wide>
       <PhotoPicker name={form.name || 'Employee'} photo={form.photo} error={photoError} onChoose={choosePhoto} onRemove={() => setForm({ ...form, photo: '' })} />
-      <div className="grid gap-4 md:grid-cols-2"><Field label="Full Name"><Input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></Field><Field label="Role Preset"><select className="control w-full" value={form.role} onChange={event => changeRole(event.target.value as EmployeeJobRole)}>{Object.keys(rolePermissions).map(role => <option key={role}>{role}</option>)}</select></Field><Field label="Email"><Input type="email" disabled={Boolean(editing)} value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></Field><Field label="Phone"><Input value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} /></Field>{!editing && <Field label="Temporary Password"><Input type="password" minLength={8} value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} /></Field>}<Field label="Shift"><select className="control w-full" value={form.shift} onChange={event => setForm({ ...form, shift: event.target.value })}><option>Morning</option><option>Evening</option><option>Night</option></select></Field><Field label="Assigned Branch"><select className="control w-full" value={form.branchId} onChange={event => setForm({ ...form, branchId: event.target.value })}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></Field></div>
+      <div className="grid gap-4 md:grid-cols-2"><Field label="Full Name"><Input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></Field><Field label="Role Preset"><select className="control w-full" value={form.role} onChange={event => changeRole(event.target.value as EmployeeJobRole)}>{Object.keys(rolePermissions).map(role => <option key={role}>{role}</option>)}</select></Field><Field label="Email"><Input type="email" disabled={Boolean(editing)} value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></Field><Field label="Phone"><Input value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} /></Field>{!editing && <Field label="Temporary Password"><Input type="password" minLength={8} value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} /></Field>}<Field label="Shift"><select className="control w-full" value={form.shift} onChange={event => setForm({ ...form, shift: event.target.value })}><option>Day</option><option>Night</option></select></Field><Field label="Assigned Branch"><select className="control w-full" value={form.branchId} onChange={event => setForm({ ...form, branchId: event.target.value })}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></Field></div>
       <h3 className="mb-3 mt-6 font-bold">Action Permissions</h3><div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">{permissionLabels.map(([permissionKey, label]) => <React.Fragment key={String(permissionKey)}><PermissionToggle label={label} checked={form.permissions[permissionKey]} set={value => changePermission(permissionKey, value)} /></React.Fragment>)}</div>
       <h3 className="mb-3 mt-6 font-bold">Operational Access</h3><div className="grid gap-2 sm:grid-cols-2"><PermissionToggle label="Adjust inventory stock" checked={form.permissions.editStock} set={value => changePermission('editStock', value)} /><PermissionToggle label="Record expenses" checked={form.permissions.recordExpenses} set={value => changePermission('recordExpenses', value)} /></div>
       {formError && <p className="mt-4 text-sm text-red-600">{formError}</p>}<Button className="mt-6 w-full bg-blue-600 text-white" disabled={saving} onClick={saveEmployee}>{saving ? 'Saving…' : editing ? 'Update Employee' : 'Create Account'}</Button>
