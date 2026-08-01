@@ -6,9 +6,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   const repositoryName = process.env.GITHUB_REPOSITORY?.split('/')[1];
+  const deployBase = process.env.VITE_DEPLOY_BASE;
 
   return {
-    base: process.env.GITHUB_ACTIONS === 'true' && repositoryName ? `/${repositoryName}/` : '/',
+    base: deployBase ?? (process.env.GITHUB_ACTIONS === 'true' && repositoryName ? `/${repositoryName}/` : '/'),
     plugins: [react(), tailwindcss(), VitePWA({
       registerType: 'autoUpdate',
       manifest: {
