@@ -117,7 +117,7 @@ export default function OwnerSettings() {
         {activeTab === 'Profile' && <Card className="p-6 space-y-5">
           <h3 className="font-bold text-lg">Business Profile</h3>
           <div><label className="text-sm font-bold">Business type</label><select value={settings.businessType} onChange={e => setSettings({ ...settings, businessType: e.target.value as BusinessType })} className="mt-2 flex h-12 w-full rounded-2xl border border-slate-200 bg-white px-4">
-            <option value="RESTAURANT">Restaurant / Café</option><option value="RETAIL">General Retail</option><option value="FASHION">Fashion & Clothing</option><option value="BAKERY">Bakery</option><option value="PHOTOBOOTH">Photobooth & Costume Rental</option><option value="SERVICE">Customer Service / Service Business</option><option value="OTHER">Other</option>
+            <option value="RESTAURANT">Restaurant / Café</option><option value="RETAIL">General Retail</option><option value="FASHION">Fashion & Clothing</option><option value="BAKERY">Bakery</option><option value="PHOTOBOOTH">Photobooth & Costume Rental</option><option value="JEWELLERY">Diamond & Jewellery Shop</option><option value="SERVICE">Customer Service / Service Business</option><option value="OTHER">Other</option>
           </select></div>
           <div>
             <span className="text-sm font-bold">Owner photo</span>

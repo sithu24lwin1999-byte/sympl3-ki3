@@ -1,6 +1,6 @@
 export type Role = 'ADMIN' | 'OWNER' | 'EMPLOYEE';
 export type OrderStatus = 'DRAFT' | 'HELD' | 'PENDING' | 'CONFIRMED' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
-export type BusinessType = 'RESTAURANT' | 'RETAIL' | 'FASHION' | 'BAKERY' | 'PHOTOBOOTH' | 'SERVICE' | 'OTHER';
+export type BusinessType = 'RESTAURANT' | 'RETAIL' | 'FASHION' | 'BAKERY' | 'PHOTOBOOTH' | 'JEWELLERY' | 'SERVICE' | 'OTHER';
 export type PaymentKind = 'CASH' | 'BANK' | 'CARD' | 'KPAY' | 'WAVE' | 'AYAPAY' | 'CBPAY' | 'CREDIT' | 'SPLIT';
 export type OrderChannel = 'ONLINE' | 'IN_STORE';
 export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRING_SOON' | 'EXPIRED' | 'SUSPENDED' | 'CANCELLED';
@@ -160,6 +160,22 @@ export interface Product {
   itemType?: 'PRODUCT' | 'SERVICE';
   trackStock?: boolean;
   availableBranchIds?: string[];
+  jewellery?: JewelleryDetails;
+}
+
+export interface JewelleryDetails {
+  metalType?: 'GOLD' | 'WHITE_GOLD' | 'ROSE_GOLD' | 'SILVER' | 'PLATINUM' | 'DIAMOND' | 'GEMSTONE' | 'MIXED' | 'OTHER';
+  purity?: string;
+  grossWeightGram?: number;
+  netWeightGram?: number;
+  stoneWeightCarat?: number;
+  gemstoneType?: string;
+  diamondColor?: string;
+  diamondClarity?: string;
+  certificateNumber?: string;
+  ringSize?: string;
+  makingCharge?: number;
+  wastagePercent?: number;
 }
 
 export interface PaymentAccount {
