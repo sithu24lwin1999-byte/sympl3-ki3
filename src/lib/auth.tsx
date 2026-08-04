@@ -149,9 +149,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     resetPassword: async (email) => {
-      if (!email.trim()) throw new Error('Enter your email address first.');
+      const targetEmail = email.trim().toLowerCase();
+      if (!targetEmail) throw new Error('Enter your email address first.');
       try {
-        await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+        await sendPasswordResetEmail(auth, targetEmail, { url: window.location.origin, handleCodeInApp: false });
       } catch (issue) {
         throw new Error(authErrorMessage(issue));
       }
