@@ -71,7 +71,7 @@ export default function DashboardLayout({ children, role }: { children: React.Re
   };
 
   return (
-    <div className="page-shell flex min-h-screen overflow-hidden bg-[#f7f1e7] font-sans text-[#1d1a16]">
+    <div className={cn("page-shell flex min-h-screen overflow-hidden bg-[#f7f1e7] font-sans text-[#1d1a16]", effectiveRole === 'OWNER' && 'owner-shell', effectiveRole === 'EMPLOYEE' && 'employee-shell', effectiveRole === 'ADMIN' && 'admin-shell')}>
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-[#ddcdbc] bg-[#ebe1d2]/95 p-5 shadow-[10px_0_34px_rgb(70_54_36_/_6%)] lg:flex">
         <div className="mb-9 flex items-center gap-3 px-2">
