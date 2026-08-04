@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { sendPasswordResetEmail } from 'firebase/auth';
 import { addDoc, collection, doc, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
 import { Search, Plus, MoreVertical, Filter, X } from 'lucide-react';
 import DashboardLayout from '@/layouts/DashboardLayout';
 import { Card, Button, Badge, Input, TableStateRow } from '@/components/ui';
 import { createManagedUser, useAuth } from '@/lib/auth';
-import { auth, db } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
 import { deleteShopCascade, useLiveCollection, useLiveCollectionGroup } from '@/lib/firestore';
 import { addCalendarMonths, addDays, daysRemaining, renewalPeriod, subscriptionState, todayKey } from '@/lib/subscriptions';
 import { formatCurrency } from '@/lib/utils';
@@ -17,7 +16,7 @@ const blankShop = () => ({ id: doc(collection(db, 'shops')).id, name: '', busine
 
 export default function AdminShops() {
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, resetPassword: sendPasswordChangeLink } = useAuth();
   const { data: shops, loading, error } = useLiveCollection<Shop>('shops', 'createdAt');
   const { data: transactions } = useLiveCollection<SubscriptionTransaction>('subscriptionTransactions', 'createdAt');
   const { data: orders } = useLiveCollectionGroup<Order>('orders', 'createdAt');
@@ -93,7 +92,13 @@ export default function AdminShops() {
     }
   };
   const edit = async (shop: Shop) => { const name = window.prompt('Shop name', shop.name); if (!name) return; const phone = window.prompt('Contact phone', shop.phone); if (phone === null) return; await updateDoc(doc(db, 'shops', shop.id), { name: name.trim(), phone: phone.trim(), updatedAt: new Date().toISOString() }); await audit('SHOP_EDITED', shop.id); notify('Shop details updated.'); };
-  const resetPassword = async (shop: Shop) => { await sendPasswordResetEmail(auth, shop.ownerEmail); await audit('OWNER_PASSWORD_RESET_SENT', shop.id); setActiveMenu(null); notify(`Password reset email sent to ${shop.ownerEmail}.`); };
+  const changeOwnerPassword = async (shop: Shop) => {
+    if (!window.confirm(`Send a secure password change link to ${shop.ownerEmail}?`)) return;
+    await sendPasswordChangeLink(shop.ownerEmail);
+    await audit('OWNER_PASSWORD_CHANGE_LINK_SENT', `${shop.owner} (${shop.id})`);
+    setActiveMenu(null);
+    notify(`Password change link sent to ${shop.ownerEmail}.`);
+  };
   const requestImpersonation = async (shop: Shop) => { const reason = window.prompt('Reason for audited support access (required)'); if (!reason?.trim()) return; const session = await addDoc(collection(db, 'impersonationSessions'), { adminId: user?.id, targetUserId: shop.ownerId, shopId: shop.id, reason: reason.trim(), status: 'REQUESTED', createdAt: new Date().toISOString() }); await audit('IMPERSONATION_REQUESTED', `${shop.id}; session ${session.id}; reason: ${reason.trim()}`); setActiveMenu(null); notify('Audited impersonation request recorded. No user session was opened.'); };
 
   const filtered = shops.filter(shop => (statusFilter === 'ALL' || subscriptionState(shop) === statusFilter) && `${shop.name} ${shop.owner} ${shop.ownerEmail} ${shop.id}`.toLowerCase().includes(search.toLowerCase()));
@@ -106,7 +111,7 @@ export default function AdminShops() {
     {actionError && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{actionError}</p>}
     <Card className="p-0 overflow-visible relative"><div className="p-4 border-b border-[#eadbc8] flex flex-wrap gap-3 justify-between"><div className="flex items-center bg-[#fffaf2] border border-[#dfd0bc] rounded-2xl px-3 py-2 w-96 max-w-full shadow-inner"><Search className="w-4 h-4 text-[#a8663f] mr-2"/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search shop, owner, email or ID…" className="bg-transparent outline-none text-sm w-full text-[#1d1a16] placeholder:text-[#a79a88]"/></div><label className="flex items-center gap-2 border border-[#dfd0bc] bg-[#fffaf2] rounded-2xl px-4 text-[#736756]"><Filter className="w-4 h-4"/><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-11 bg-transparent text-sm font-semibold outline-none"><option value="ALL">All statuses</option>{['TRIAL','ACTIVE','EXPIRING_SOON','EXPIRED','SUSPENDED','CANCELLED'].map(value => <option key={value}>{value}</option>)}</select></label></div>
       <div className="overflow-x-auto min-h-[360px]"><table className="w-full text-left min-w-[1500px]"><thead><tr className="bg-[#f3eadf] border-b border-[#eadbc8]">{['Shop / ID / Type','Owner / Phone / Email','Plan / Fee','Start / Expiry / Days','Subscription','System','Last Activity','Actions'].map(label => <th key={label} className="px-5 py-4 text-xs font-black text-[#8a7b68] uppercase tracking-[0.14em]">{label}</th>)}</tr></thead><tbody className="divide-y divide-[#efe4d5]"><TableStateRow columns={8} loading={loading} error={error} empty={!loading && filtered.length === 0} emptyMessage="No shops match the current filters." />{filtered.map(shop => { const state = subscriptionState(shop); return <tr key={shop.id} className="hover:bg-[#fffaf2]"><td className="px-5 py-4"><p className="font-bold text-[#1d1a16]">{shop.name}</p><p className="text-xs text-[#8a7b68]">{shop.id} · {shop.businessType || 'OTHER'}</p></td><td className="px-5 py-4"><p className="font-medium text-[#1d1a16]">{shop.owner}</p><p className="text-xs text-[#736756]">{shop.phone} · {shop.ownerEmail}</p></td><td className="px-5 py-4"><p>{shop.plan}</p><p className="text-xs text-[#8a7b68]">{formatCurrency(shop.monthlyFee || 0)}/mo</p></td><td className="px-5 py-4 text-sm"><p>{shop.subscriptionStart || '—'} → {shop.expiry}</p><p className="text-xs text-[#8a7b68]">{daysRemaining(shop.expiry)} days remaining</p></td><td className="px-5 py-4"><Badge variant={badge(state)}>{state.replace('_',' ')}</Badge></td><td className="px-5 py-4 text-sm font-semibold">{shop.systemStatus || 'ACTIVE'}</td><td className="px-5 py-4 text-xs text-[#736756]">{lastActivity(shop).replace('T',' ').slice(0,16)}</td><td className="px-5 py-4 text-right relative"><Button variant="ghost" className="h-8 w-8 p-0" onClick={() => setActiveMenu(activeMenu === shop.id ? null : shop.id)}><MoreVertical className="w-4 h-4"/></Button>{activeMenu === shop.id && <div className="absolute right-8 top-10 w-60 bg-[#fffdf8] rounded-2xl shadow-2xl border border-[#dfd0bc] py-2 z-50 text-left">{[
-          ['View details', () => { setSelected(shop); setActiveMenu(null); }], ['Edit shop', () => edit(shop)], ['Renew subscription', () => { setRenewing(shop); setRenewStart(shop.expiry < todayKey() ? todayKey() : shop.expiry); setActiveMenu(null); }], ['Add one month', () => extend(shop)], ['Reset owner password', () => resetPassword(shop)], ['Request impersonation', () => requestImpersonation(shop)]
+          ['View details', () => { setSelected(shop); setActiveMenu(null); }], ['Edit shop', () => edit(shop)], ['Renew subscription', () => { setRenewing(shop); setRenewStart(shop.expiry < todayKey() ? todayKey() : shop.expiry); setActiveMenu(null); }], ['Add one month', () => extend(shop)], ['Change owner password', () => changeOwnerPassword(shop)], ['Request impersonation', () => requestImpersonation(shop)]
         ].map(([label, action]) => <button key={label as string} onClick={action as () => void} className="block w-full px-4 py-2.5 text-sm font-medium text-[#1d1a16] hover:bg-[#f4e5d5]">{label as string}</button>)}<div className="border-t border-[#eadbc8] my-1"/>{state === 'SUSPENDED' ? <button onClick={() => setState(shop,'ACTIVE')} className="w-full px-4 py-2.5 text-sm text-emerald-700 text-left font-semibold hover:bg-emerald-50">Reactivate</button> : <button onClick={() => setState(shop,'SUSPENDED')} className="w-full px-4 py-2.5 text-sm text-[#865036] text-left font-semibold hover:bg-[#fbedd2]">Stop / Suspend</button>}<button onClick={() => archive(shop)} className="w-full px-4 py-2.5 text-sm text-red-600 text-left hover:bg-red-50">Archive shop</button><button disabled={deletingId===shop.id} onClick={() => void remove(shop)} className="w-full px-4 py-2.5 text-sm font-semibold text-red-700 text-left hover:bg-red-50 disabled:opacity-50">{deletingId===shop.id?'Deleting…':'Delete permanently'}</button></div>}</td></tr>; })}</tbody></table></div><div className="p-4 border-t border-[#eadbc8] bg-[#f3eadf] text-sm text-[#736756]">Showing {filtered.length} of {shops.length} shops</div>
     </Card>
 
