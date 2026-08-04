@@ -241,7 +241,7 @@ service cloud.firestore {
       allow update: if isAdmin() || (activeTenantMember(shopId)
         && ownsShop(shopId)
         && request.resource.data.ownerId == resource.data.ownerId
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'ownerPhoto', 'businessType', 'updatedAt']));
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'address', 'ownerPhoto', 'logo', 'businessType', 'updatedAt']));
 
       match /products/{productId} {
         allow read: if hasShopAccess(shopId);
