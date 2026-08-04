@@ -130,6 +130,42 @@ kbd { border: 1px solid #cbd5e1; border-bottom-width: 2px; border-radius: .375re
 .pos-shell .bg-purple-600 { background-color: #a8663f !important; }
 .pos-shell .hover\:bg-purple-700:hover { background-color: #865036 !important; }
 .pos-shell .bg-blue-50 { background-color: #f0e5d8 !important; }
+.pos-shell .bg-white { background-color: var(--color-surface) !important; }
+.pos-shell .bg-slate-50,
+.pos-shell .bg-slate-100 { background-color: #f3eadf !important; }
+.pos-shell .text-slate-900,
+.pos-shell .text-slate-800,
+.pos-shell .text-slate-700 { color: var(--color-text) !important; }
+.pos-shell .text-slate-600,
+.pos-shell .text-slate-500,
+.pos-shell .text-slate-400 { color: var(--color-muted) !important; }
+.pos-shell .border,
+.pos-shell .border-b,
+.pos-shell .border-t,
+.pos-shell .border-l,
+.pos-shell .border-y { border-color: var(--color-border) !important; }
+.pos-shell input,
+.pos-shell select,
+.pos-shell textarea {
+  border-color: var(--color-border) !important;
+  background-color: #fffaf2 !important;
+  color: var(--color-text) !important;
+}
+.pos-shell input:focus,
+.pos-shell select:focus,
+.pos-shell textarea:focus {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 4px rgb(242 223 207 / 84%) !important;
+}
+.pos-shell .bg-emerald-600 { background-color: var(--color-primary) !important; }
+.pos-shell .hover\:bg-emerald-700:hover { background-color: var(--color-primary-strong) !important; }
+.pos-shell .text-blue-600,
+.pos-shell .text-blue-700,
+.pos-shell .text-blue-900 { color: var(--color-primary) !important; }
+.pos-shell .bg-blue-100,
+.pos-shell .bg-purple-100,
+.pos-shell .bg-indigo-50 { background-color: #f2dfcf !important; }
+.pos-shell .border-indigo-200 { border-color: var(--color-border) !important; }
 .pos-shell .text-purple-700,
 .pos-shell .text-orange-700,
 .pos-shell .text-cyan-700 { color: #7a5137 !important; }
@@ -137,6 +173,20 @@ kbd { border: 1px solid #cbd5e1; border-bottom-width: 2px; border-radius: .375re
 .pos-shell .border-orange-200,
 .pos-shell .border-cyan-200,
 .pos-shell .border-emerald-200 { border-color: #ddcdbc !important; }
+.pos-shell .pos-product-card {
+  background: var(--color-surface) !important;
+  border-color: var(--color-border) !important;
+}
+.pos-shell .pos-product-card:disabled {
+  filter: grayscale(.18);
+}
+.pos-shell .pos-cart-panel {
+  border-color: var(--color-border) !important;
+  background: linear-gradient(180deg, #fffdf8, #fbf4ea) !important;
+}
+.pos-shell .receipt {
+  background: #fffdf8 !important;
+}
 
 .owner-shell h1 {
   color: var(--color-text);
@@ -264,6 +314,72 @@ kbd { border: 1px solid #cbd5e1; border-bottom-width: 2px; border-radius: .375re
 .owner-shell .shadow-xl,
 .owner-shell .shadow-2xl {
   box-shadow: var(--shadow-lifted) !important;
+}
+
+.employee-shell h1 {
+  color: var(--color-text);
+  letter-spacing: -0.035em;
+}
+.employee-shell .ui-card {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+.employee-shell .bg-white {
+  background-color: var(--color-surface) !important;
+}
+.employee-shell .bg-slate-50,
+.employee-shell .bg-slate-100 {
+  background-color: #f3eadf !important;
+}
+.employee-shell .text-slate-900,
+.employee-shell .text-slate-800,
+.employee-shell .text-slate-700 {
+  color: var(--color-text) !important;
+}
+.employee-shell .text-slate-600,
+.employee-shell .text-slate-500,
+.employee-shell .text-slate-400 {
+  color: var(--color-muted) !important;
+}
+.employee-shell .border,
+.employee-shell .border-b,
+.employee-shell .border-t,
+.employee-shell .divide-y > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--color-border) !important;
+}
+.employee-shell thead,
+.employee-shell thead tr {
+  background-color: #f3eadf !important;
+}
+.employee-shell thead th {
+  color: #8a7b68 !important;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+.employee-shell tbody tr:hover {
+  background-color: #fffaf2 !important;
+}
+.employee-shell input:not([type="checkbox"]):not([type="radio"]),
+.employee-shell select,
+.employee-shell textarea {
+  border-color: var(--color-border) !important;
+  background-color: #fffaf2 !important;
+  color: var(--color-text) !important;
+}
+.employee-shell .bg-blue-600 { background-color: var(--color-primary) !important; }
+.employee-shell .text-blue-600,
+.employee-shell .text-blue-700 { color: var(--color-primary) !important; }
+.employee-shell .bg-blue-50,
+.employee-shell .bg-blue-100,
+.employee-shell .bg-indigo-100,
+.employee-shell .bg-purple-100 {
+  background-color: var(--color-primary-soft) !important;
+}
+.employee-shell .text-purple-700,
+.employee-shell .text-indigo-700,
+.employee-shell .text-orange-700,
+.employee-shell .text-cyan-700 {
+  color: var(--color-accent-strong) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
