@@ -152,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const targetEmail = email.trim().toLowerCase();
       if (!targetEmail) throw new Error('Enter your email address first.');
       try {
-        await sendPasswordResetEmail(auth, targetEmail, { url: window.location.origin, handleCodeInApp: false });
+        await sendPasswordResetEmail(auth, targetEmail, { url: `https://${firebaseConfig.authDomain}`, handleCodeInApp: false });
       } catch (issue) {
         throw new Error(authErrorMessage(issue));
       }
