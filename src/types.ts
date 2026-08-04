@@ -25,6 +25,7 @@ export interface Shop {
   ownerId: string;
   ownerEmail: string;
   ownerPhoto?: string;
+  logo?: string;
   phone: string;
   address?: string;
   plan: string;
