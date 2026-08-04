@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Card, Input } from '@/components/ui';
 import { Download, Store, Loader2, ShieldCheck } from 'lucide-react';
@@ -7,16 +7,34 @@ import { useAuth } from '@/lib/auth';
 export default function Login() {
   const { login, resetPassword } = useAuth();
   const [email, setEmail] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [showReset, setShowReset] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [resetError, setResetError] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError(''); setMessage('');
     try { await action(); }
     catch (issue) { setError(issue instanceof Error ? issue.message : 'Sign in failed.'); }
     finally { setBusy(false); }
+  };
+
+  const sendReset = async (event: FormEvent) => {
+    event.preventDefault();
+    setResetBusy(true); setResetError(''); setResetMessage(''); setError(''); setMessage('');
+    try {
+      await resetPassword(resetEmail || email);
+      setResetMessage('Password reset link sent. Please check Inbox or Spam folder.');
+    } catch (issue) {
+      setResetError(issue instanceof Error ? issue.message : 'Unable to send password reset email.');
+    } finally {
+      setResetBusy(false);
+    }
   };
 
   return (
@@ -35,13 +53,24 @@ export default function Login() {
           <div><label className="block text-sm font-bold mb-2">Password</label><Input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></div>
           {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
           <Button type="submit" disabled={busy} className="w-full h-13">{busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Sign In</Button>
-          <button type="button" disabled={busy} onClick={() => run(async () => { await resetPassword(email); setMessage('Password reset link sent. Please check your email.'); })} className="w-full text-sm font-bold text-[#5f725a] hover:text-[#465741]">Forgot password?</button>
+          <button type="button" disabled={busy} onClick={() => { setShowReset(value => !value); setResetEmail(email); setResetError(''); setResetMessage(''); }} className="w-full text-sm font-bold text-[#5f725a] hover:text-[#465741]">Forgot password?</button>
           <Link to="/download" className="flex w-full items-center justify-center gap-2 text-sm font-bold text-slate-500 hover:text-[#465741]">
             <Download className="h-4 w-4" />
             Download app
           </Link>
         </form>
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-700">{message}</p>}
+        {showReset && <form onSubmit={sendReset} className="mt-5 rounded-3xl border border-[#dfd0bc] bg-[#fffaf2] p-4">
+          <p className="text-sm font-black text-[#1d1a16]">Reset password</p>
+          <p className="mt-1 text-xs text-[#736756]">Enter your account email. Firebase will send a secure reset link.</p>
+          <Input className="mt-3" type="email" value={resetEmail} onChange={event => setResetEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" required />
+          {resetError && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">{resetError}</p>}
+          {resetMessage && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-700">{resetMessage}</p>}
+          <div className="mt-3 flex gap-2">
+            <Button type="submit" disabled={resetBusy} className="flex-1">{resetBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{resetBusy ? 'Sending…' : 'Send Reset Link'}</Button>
+            <Button type="button" variant="outline" disabled={resetBusy} onClick={() => setShowReset(false)}>Cancel</Button>
+          </div>
+        </form>}
       </Card>
     </div>
   );
