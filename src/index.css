@@ -138,6 +138,134 @@ kbd { border: 1px solid #cbd5e1; border-bottom-width: 2px; border-radius: .375re
 .pos-shell .border-cyan-200,
 .pos-shell .border-emerald-200 { border-color: #ddcdbc !important; }
 
+.owner-shell h1 {
+  color: var(--color-text);
+  letter-spacing: -0.035em;
+}
+.owner-shell h1 + p,
+.owner-shell h2 + p,
+.owner-shell h3 + p { color: var(--color-muted) !important; }
+.owner-shell .ui-card {
+  position: relative;
+  overflow: hidden;
+}
+.owner-shell .ui-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 72%);
+}
+.owner-shell .ui-card > * { position: relative; z-index: 1; }
+.owner-shell .bg-white {
+  background-color: var(--color-surface) !important;
+}
+.owner-shell .bg-slate-50,
+.owner-shell .bg-slate-100 {
+  background-color: #f3eadf !important;
+}
+.owner-shell .text-slate-900,
+.owner-shell .text-slate-800,
+.owner-shell .text-slate-700 {
+  color: var(--color-text) !important;
+}
+.owner-shell .text-slate-600,
+.owner-shell .text-slate-500,
+.owner-shell .text-slate-400 {
+  color: var(--color-muted) !important;
+}
+.owner-shell .border,
+.owner-shell .border-b,
+.owner-shell .border-t,
+.owner-shell .divide-y > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--color-border) !important;
+}
+.owner-shell thead,
+.owner-shell thead tr,
+.owner-shell .bg-slate-50 thead {
+  background-color: #f3eadf !important;
+}
+.owner-shell thead th {
+  color: #8a7b68 !important;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+.owner-shell tbody tr:hover {
+  background-color: #fffaf2 !important;
+}
+.owner-shell .ring-blue-500,
+.owner-shell .ring-2 {
+  --tw-ring-color: rgb(168 102 63 / 32%) !important;
+}
+.owner-shell .rounded-xl,
+.owner-shell .rounded-2xl {
+  border-radius: 1rem;
+}
+.owner-shell input:not([type="checkbox"]):not([type="radio"]),
+.owner-shell select,
+.owner-shell textarea {
+  border-color: var(--color-border) !important;
+  background-color: #fffaf2 !important;
+  color: var(--color-text) !important;
+}
+.owner-shell input:not([type="checkbox"]):not([type="radio"]):focus,
+.owner-shell select:focus,
+.owner-shell textarea:focus {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 4px rgb(242 223 207 / 86%) !important;
+}
+.owner-shell .bg-blue-600,
+.owner-shell button.bg-blue-600,
+.owner-shell label.bg-blue-600 {
+  background-color: var(--color-primary) !important;
+}
+.owner-shell .hover\:bg-blue-700:hover,
+.owner-shell button.hover\:bg-blue-700:hover,
+.owner-shell label.hover\:bg-blue-700:hover {
+  background-color: var(--color-primary-strong) !important;
+}
+.owner-shell .text-blue-600,
+.owner-shell .text-blue-700,
+.owner-shell .font-mono.text-blue-700 {
+  color: var(--color-primary) !important;
+}
+.owner-shell .bg-blue-50,
+.owner-shell .bg-blue-100 {
+  background-color: var(--color-primary-soft) !important;
+}
+.owner-shell .border-blue-200,
+.owner-shell .border-blue-300 {
+  border-color: var(--color-border) !important;
+}
+.owner-shell .bg-purple-600,
+.owner-shell .bg-cyan-600,
+.owner-shell .bg-orange-600 {
+  background-color: var(--color-accent) !important;
+}
+.owner-shell .text-purple-700,
+.owner-shell .text-cyan-700,
+.owner-shell .text-orange-700 {
+  color: var(--color-accent-strong) !important;
+}
+.owner-shell .bg-amber-50 {
+  background-color: #fbedd2 !important;
+}
+.owner-shell .border-amber-200 {
+  border-color: #e8c792 !important;
+}
+.owner-shell .text-amber-700,
+.owner-shell .text-amber-900 {
+  color: #865036 !important;
+}
+.owner-shell .bg-slate-900 {
+  background-color: #48543f !important;
+}
+.owner-shell .shadow-xl,
+.owner-shell .shadow-2xl {
+  box-shadow: var(--shadow-lifted) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
