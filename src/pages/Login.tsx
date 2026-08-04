@@ -29,7 +29,7 @@ export default function Login() {
     setResetBusy(true); setResetError(''); setResetMessage(''); setError(''); setMessage('');
     try {
       await resetPassword(resetEmail || email);
-      setResetMessage('Password reset link sent. Please check Inbox or Spam folder.');
+      setResetMessage('If this email belongs to a Ki3 POS account, a password reset link will arrive shortly. Please check Inbox or Spam folder.');
     } catch (issue) {
       setResetError(issue instanceof Error ? issue.message : 'Unable to send password reset email.');
     } finally {
