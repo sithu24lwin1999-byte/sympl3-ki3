@@ -9,10 +9,10 @@ export const Card = ({ children, className, ...props }: React.HTMLAttributes<HTM
 export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' }>(
   ({ className, variant = 'primary', type = 'button', ...props }, ref) => {
     const variants = {
-      primary: 'bg-[#667860] text-white shadow-sm shadow-[#667860]/20 hover:bg-[#52634d]',
-      secondary: 'bg-[#efeee8] text-slate-900 shadow-sm hover:bg-[#e5e3da]',
-      outline: 'border border-[#ddd9ce] bg-white shadow-sm hover:bg-[#f6f5f0]',
-      ghost: 'hover:bg-[#efeee8] text-slate-600',
+      primary: 'bg-[#5f6f52] text-white shadow-sm shadow-[#5f6f52]/20 hover:bg-[#48543f]',
+      secondary: 'bg-[#efe4d5] text-[#282018] shadow-sm hover:bg-[#e7d7c4]',
+      outline: 'border border-[#dfd0bc] bg-[#fffdf8] shadow-sm hover:bg-[#fbf4ea]',
+      ghost: 'hover:bg-[#efe4d5] text-[#736756]',
       danger: 'bg-red-600 text-white shadow-sm shadow-red-600/20 hover:bg-red-700',
     };
     return (
@@ -20,7 +20,7 @@ export const Button = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttrib
         ref={ref}
         type={type}
         className={cn(
-          "min-h-11 inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#71806a] focus-visible:ring-offset-2",
+          "min-h-11 inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5f6f52] focus-visible:ring-offset-2",
           variants[variant],
           className
         )}
@@ -36,7 +36,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        "flex h-12 w-full rounded-xl border border-[#ddd9ce] bg-white px-4 py-2 text-sm shadow-sm shadow-slate-900/[0.02] ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#71806a] disabled:cursor-not-allowed disabled:opacity-50 transition-all",
+        "flex h-12 w-full rounded-xl border border-[#dfd0bc] bg-[#fffdf8] px-4 py-2 text-sm shadow-sm shadow-[#463624]/[0.03] ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-[#a39582] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5f6f52] disabled:cursor-not-allowed disabled:opacity-50 transition-all",
         className
       )}
       {...props}
@@ -47,7 +47,7 @@ Input.displayName = "Input";
 
 export const Badge = ({ children, className, variant = 'default' }: { children: React.ReactNode, className?: string, variant?: 'default' | 'success' | 'warning' | 'danger' }) => {
   const variants = {
-    default: 'bg-[#efeee8] text-slate-700',
+    default: 'bg-[#efe4d5] text-[#6c5137]',
     success: 'bg-emerald-100 text-emerald-800',
     warning: 'bg-amber-100 text-amber-800',
     danger: 'bg-red-100 text-red-800',
