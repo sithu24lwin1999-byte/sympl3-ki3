@@ -136,7 +136,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearAccessIssue: () => setAccessIssue(null),
     login: async (email, password) => {
       setAccessIssue(null);
-      const credential = await signInWithEmailAndPassword(auth, email, password);
+      let credential: Awaited<ReturnType<typeof signInWithEmailAndPassword>>;
+      try {
+        credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+      } catch (issue) {
+        throw new Error(authErrorMessage(issue));
+      }
       try {
         const resolved = await resolveUser(credential.user);
         setUser(resolved);
